@@ -1,0 +1,6 @@
+{
+  "name": "Sufiyan Academy — Complete Online Earning Course",
+  "description": "Premium ₹99 digital course platform with manual UPI verification, admin approval workflow, and single-use private Telegram community access.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

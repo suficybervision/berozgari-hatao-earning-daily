@@ -1,0 +1,227 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'hajshdbdb262837@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidUser(data, userId) {
+      return data.keys().hasAll(['uid', 'name', 'mobile', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'name', 'mobile', 'email', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.mobile is string && data.mobile.size() <= 20
+        && data.email is string && data.email.size() <= 160
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdmin(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'role', 'createdAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.role == 'admin'
+        && data.createdAt is timestamp;
+    }
+
+    function isValidCourseSettings(data) {
+      return data.keys().hasAll([
+          'courseName', 'courseDescription', 'courseCoverUrl',
+          'originalPrice', 'showOriginalPrice', 'coursePrice',
+          'upiId', 'qrCodeUrl', 'whatsappNumber', 'isAvailable', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'courseName', 'courseDescription', 'courseCoverUrl',
+          'originalPrice', 'showOriginalPrice', 'coursePrice',
+          'upiId', 'qrCodeUrl', 'whatsappNumber', 'isAvailable', 'updatedAt'
+        ])
+        && data.courseName is string && data.courseName.size() >= 2 && data.courseName.size() <= 150
+        && data.courseDescription is string && data.courseDescription.size() >= 5 && data.courseDescription.size() <= 1000
+        && data.courseCoverUrl is string && data.courseCoverUrl.size() <= 2048
+        && data.originalPrice is number && data.originalPrice >= 0 && data.originalPrice <= 1000000
+        && data.showOriginalPrice is bool
+        && data.coursePrice is number && data.coursePrice >= 1 && data.coursePrice <= 1000000
+        && data.upiId is string && data.upiId.size() >= 3 && data.upiId.size() <= 120
+        && data.qrCodeUrl is string && data.qrCodeUrl.size() <= 2048
+        && data.whatsappNumber is string && data.whatsappNumber.size() <= 25
+        && data.isAvailable is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll([
+          'orderId', 'userId', 'name', 'mobile', 'email',
+          'utr', 'screenshotUrl', 'amount', 'status',
+          'rejectionReason', 'adminId', 'createdAt', 'approvedAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'orderId', 'userId', 'name', 'mobile', 'email',
+          'utr', 'screenshotUrl', 'amount', 'status',
+          'rejectionReason', 'adminId', 'createdAt', 'approvedAt', 'updatedAt'
+        ])
+        && data.orderId is string && data.orderId.size() >= 4 && data.orderId.size() <= 64 && data.orderId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+        && data.mobile is string && data.mobile.size() >= 10 && data.mobile.size() <= 15 && data.mobile.matches('^[0-9+\\-\\s]{10,15}$')
+        && data.email is string && data.email.size() <= 160
+        && data.utr is string && data.utr.size() >= 6 && data.utr.size() <= 40 && data.utr.matches('^[A-Z0-9]{6,40}$')
+        && data.screenshotUrl is string && data.screenshotUrl.size() >= 5 && data.screenshotUrl.size() <= 2048
+        && data.amount is number && data.amount >= 1 && data.amount <= 1000000
+        && data.status in ['PENDING', 'APPROVED', 'REJECTED']
+        && data.rejectionReason is string && data.rejectionReason.size() <= 500
+        && data.adminId is string && data.adminId.size() <= 128
+        && data.createdAt is timestamp
+        && (data.approvedAt == null || data.approvedAt is timestamp)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUtrLock(data, utrId) {
+      return data.keys().hasAll(['utr', 'orderId', 'userId', 'createdAt'])
+        && data.keys().hasOnly(['utr', 'orderId', 'userId', 'createdAt'])
+        && data.utr is string && data.utr == utrId && data.utr.size() >= 6 && data.utr.size() <= 40 && data.utr.matches('^[A-Z0-9]{6,40}$')
+        && data.orderId is string && data.orderId.size() >= 4 && data.orderId.size() <= 64 && data.orderId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.createdAt is timestamp;
+    }
+
+    // 4. Collection Rules
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUser(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUser(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'mobile', 'email', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    match /admins/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && isValidId(userId)
+        && isValidAdmin(incoming(), userId)
+        && incoming().createdAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(userId)
+        && isValidAdmin(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    match /settings/{settingId} {
+      allow get: if settingId == 'course';
+      allow list: if false;
+      allow create: if isAdmin()
+        && settingId == 'course'
+        && isValidCourseSettings(incoming())
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && settingId == 'course'
+        && isValidCourseSettings(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /orders/{orderId} {
+      allow get: if isSignedIn() && isValidId(orderId) && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser()
+        && isValidId(orderId)
+        && isValidOrder(incoming())
+        && incoming().orderId == orderId
+        && incoming().userId == request.auth.uid
+        && incoming().status == 'PENDING'
+        && incoming().rejectionReason == ''
+        && incoming().adminId == ''
+        && incoming().approvedAt == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && !exists(/databases/$(database)/documents/utr_locks/$(incoming().utr))
+        && existsAfter(/databases/$(database)/documents/utr_locks/$(incoming().utr));
+      allow update: if isAdmin()
+        && isValidId(orderId)
+        && isValidOrder(incoming())
+        && existing().status != 'APPROVED'
+        && incoming().orderId == existing().orderId
+        && incoming().userId == existing().userId
+        && incoming().name == existing().name
+        && incoming().mobile == existing().mobile
+        && incoming().email == existing().email
+        && incoming().utr == existing().utr
+        && incoming().screenshotUrl == existing().screenshotUrl
+        && incoming().amount == existing().amount
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().adminId == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminId', 'approvedAt', 'rejectionReason', 'updatedAt'])
+        && (
+          (incoming().status == 'APPROVED' && incoming().approvedAt == request.time && incoming().rejectionReason == '') ||
+          (incoming().status == 'REJECTED' && incoming().approvedAt == null && incoming().rejectionReason.size() >= 3)
+        );
+      allow delete: if false;
+    }
+
+    match /utr_locks/{utrId} {
+      allow get: if isSignedIn() && isValidId(utrId);
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidId(utrId)
+        && isValidUtrLock(incoming(), utrId)
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && existsAfter(/databases/$(database)/documents/orders/$(incoming().orderId));
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(utrId);
+    }
+  }
+}

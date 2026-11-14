@@ -1,0 +1,279 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered student/customer profile stored in Firestore",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Customer full name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "mobile": {
+          "type": "string",
+          "description": "Customer mobile number",
+          "maxLength": 20
+        },
+        "email": {
+          "type": "string",
+          "description": "Customer email address",
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Account creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["uid", "name", "mobile", "email", "createdAt", "updatedAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Authorized platform administrator record",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Admin Firebase Auth UID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "description": "Admin email address",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin"],
+          "description": "Administrative role"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "CourseSettings": {
+      "title": "CourseSettings",
+      "description": "Publicly visible course metadata, pricing, and UPI configuration",
+      "type": "object",
+      "properties": {
+        "courseName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 150
+        },
+        "courseDescription": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 1000
+        },
+        "courseCoverUrl": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "originalPrice": {
+          "type": "number"
+        },
+        "showOriginalPrice": {
+          "type": "boolean"
+        },
+        "coursePrice": {
+          "type": "number"
+        },
+        "upiId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "qrCodeUrl": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "whatsappNumber": {
+          "type": "string",
+          "maxLength": 25
+        },
+        "isAvailable": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "courseName",
+        "courseDescription",
+        "courseCoverUrl",
+        "originalPrice",
+        "showOriginalPrice",
+        "coursePrice",
+        "upiId",
+        "qrCodeUrl",
+        "whatsappNumber",
+        "isAvailable",
+        "updatedAt"
+      ]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Manual UPI payment order submitted by a user for admin verification",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "mobile": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 15,
+          "pattern": "^[0-9+\\-\\s]{10,15}$"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "utr": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 40,
+          "pattern": "^[A-Z0-9]{6,40}$"
+        },
+        "screenshotUrl": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 2048
+        },
+        "amount": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "APPROVED", "REJECTED"]
+        },
+        "rejectionReason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "adminId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "approvedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "orderId",
+        "userId",
+        "name",
+        "mobile",
+        "email",
+        "utr",
+        "screenshotUrl",
+        "amount",
+        "status",
+        "rejectionReason",
+        "adminId",
+        "createdAt",
+        "approvedAt",
+        "updatedAt"
+      ]
+    },
+    "UtrLock": {
+      "title": "UtrLock",
+      "description": "Atomic uniqueness lock keyed by normalized UTR number to prevent duplicate submissions",
+      "type": "object",
+      "properties": {
+        "utr": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 40,
+          "pattern": "^[A-Z0-9]{6,40}$"
+        },
+        "orderId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["utr", "orderId", "userId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Private user profiles isolated to the owner and admins"
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Authorized admin role registry"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/CourseSettings" },
+      "description": "Course pricing, title, description, cover, and UPI configuration"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Manual UPI payment orders awaiting or completed admin verification"
+    },
+    "/utr_locks/{utrId}": {
+      "schema": { "$ref": "#/entities/UtrLock" },
+      "description": "UTR uniqueness lock documents preventing duplicate UTR submissions"
+    }
+  }
+}
