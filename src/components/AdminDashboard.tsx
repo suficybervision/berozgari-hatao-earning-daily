@@ -5,6 +5,8 @@ import {
   Eye,
   Loader2,
   Lock,
+  LogOut,
+  RotateCcw,
   Save,
   Search,
   Settings,
@@ -20,6 +22,7 @@ import {
   approveOrder,
   fetchAdminTelegramStatus,
   rejectOrder,
+  resetTelegramAccessGrant,
   saveAdminTelegramChannel,
   saveCourseSettings,
   subscribeAllOrders,
@@ -32,6 +35,7 @@ interface AdminDashboardProps {
   isAdmin: boolean;
   settings: CourseSettings;
   onSignIn: () => Promise<User | void>;
+  onSignOut: () => Promise<void>;
   onNotify: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
 }
 
@@ -51,28 +55,25 @@ export default function AdminDashboard({
   isAdmin,
   settings,
   onSignIn,
+  onSignOut,
   onNotify,
 }: AdminDashboardProps) {
   const [tab, setTab] = useState<'orders' | 'settings'>('orders');
 
-  // Orders state
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | OrderStatus>('ALL');
 
-  // Action modals
   const [inspectOrder, setInspectOrder] = useState<OrderRecord | null>(null);
   const [rejectTarget, setRejectTarget] = useState<OrderRecord | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [actionBusyId, setActionBusyId] = useState('');
 
-  // Settings form state
   const [formSettings, setFormSettings] = useState<CourseSettings>(settings);
   const [savingSettings, setSavingSettings] = useState(false);
   const [uploadingAsset, setUploadingAsset] = useState<'cover' | 'qr' | null>(null);
 
-  // Telegram settings state
   const [tgStatus, setTgStatus] = useState<TelegramConfigStatus | null>(null);
   const [channelIdInput, setChannelIdInput] = useState('');
   const [savingTelegram, setSavingTelegram] = useState(false);
@@ -118,14 +119,14 @@ export default function AdminDashboard({
             Admin Console Authentication
           </h1>
           <p className="text-sm text-zinc-400 mb-6">
-            Sign in with your authorized administrator Google account to manage orders and course settings.
+            This `/admin` portal is restricted to authorized administrators. Sign in with your verified administrator Google account.
           </p>
           <button
             type="button"
             onClick={() => onSignIn()}
             className="w-full py-3.5 px-6 text-sm font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 transition-all cursor-pointer"
           >
-            Sign in with Google
+            Admin Sign In with Google
           </button>
         </div>
       </div>
@@ -135,20 +136,27 @@ export default function AdminDashboard({
   if (!isAdmin) {
     return (
       <div className="min-h-[calc(100vh-4rem)] bg-[#09090B] text-white flex items-center justify-center px-4 py-16">
-        <div className="w-full max-w-md bg-[#111114] border border-zinc-800 rounded-2xl p-8 text-center">
-          <ShieldAlert className="w-10 h-10 text-red-400 mx-auto mb-4" />
-          <h1 className="font-display text-xl font-bold text-white mb-2">
+        <div className="w-full max-w-md bg-[#111114] border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
+          <ShieldAlert className="w-10 h-10 text-red-400 mx-auto" />
+          <h1 className="font-display text-xl font-bold text-white">
             Administrator Access Denied
           </h1>
           <p className="text-sm text-zinc-400 leading-relaxed">
-            Your signed-in account ({user.email}) does not have administrator privileges. Only authorized admins can verify payments or edit course settings.
+            The signed-in account ({user.email}) is not authorized as an administrator.
           </p>
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-zinc-200 border border-zinc-700 rounded-xl hover:border-zinc-500 cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Sign Out</span>
+          </button>
         </div>
       </div>
     );
   }
 
-  // Statistics
   const totalOrders = orders.length;
   const pendingOrders = orders.filter((o) => o.status === 'PENDING').length;
   const approvedOrders = orders.filter((o) => o.status === 'APPROVED').length;
@@ -162,7 +170,7 @@ export default function AdminDashboard({
     const matchesStatus = statusFilter === 'ALL' || ord.status === statusFilter;
     const matchesSearch =
       !q ||
-      ord.orderId.toLowerCase().includes(q) ||
+      ord.orderCode.toLowerCase().includes(q) ||
       ord.utr.toLowerCase().includes(q) ||
       ord.mobile.toLowerCase().includes(q) ||
       ord.name.toLowerCase().includes(q);
@@ -170,15 +178,15 @@ export default function AdminDashboard({
   });
 
   const handleApprove = async (order: OrderRecord) => {
-    setActionBusyId(order.orderId);
+    setActionBusyId(order.orderCode);
     try {
-      await approveOrder(order.orderId, user.uid);
+      await approveOrder(order.orderCode, user.uid);
       onNotify(
         'success',
         'Payment Approved',
-        `Order ${order.orderId} approved. User now sees VIEW NOW.`
+        `Order ${order.orderCode} approved. Customer can now unlock VIEW NOW.`
       );
-      if (inspectOrder?.orderId === order.orderId) setInspectOrder(null);
+      if (inspectOrder?.orderCode === order.orderCode) setInspectOrder(null);
     } catch (err) {
       onNotify(
         'error',
@@ -193,18 +201,38 @@ export default function AdminDashboard({
   const handleConfirmReject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rejectTarget) return;
-    setActionBusyId(rejectTarget.orderId);
+    setActionBusyId(rejectTarget.orderCode);
     try {
-      await rejectOrder(rejectTarget.orderId, user.uid, rejectReason);
-      onNotify('info', 'Order Rejected', `Order ${rejectTarget.orderId} marked as rejected.`);
+      await rejectOrder(rejectTarget.orderCode, user.uid, rejectReason);
+      onNotify('info', 'Order Rejected', `Order ${rejectTarget.orderCode} rejected.`);
       setRejectTarget(null);
       setRejectReason('');
-      if (inspectOrder?.orderId === rejectTarget.orderId) setInspectOrder(null);
+      if (inspectOrder?.orderCode === rejectTarget.orderCode) setInspectOrder(null);
     } catch (err) {
       onNotify(
         'error',
         'Rejection Failed',
         err instanceof Error ? err.message : 'Unable to reject order.'
+      );
+    } finally {
+      setActionBusyId('');
+    }
+  };
+
+  const handleResetInvite = async (orderCode: string) => {
+    setActionBusyId(orderCode);
+    try {
+      await resetTelegramAccessGrant(user, orderCode);
+      onNotify(
+        'success',
+        'Telegram Invite Lock Reset',
+        `${orderCode} can generate one fresh Telegram link.`
+      );
+    } catch (err) {
+      onNotify(
+        'error',
+        'Reset Failed',
+        err instanceof Error ? err.message : 'Could not reset invite lock.'
       );
     } finally {
       setActionBusyId('');
@@ -281,38 +309,51 @@ export default function AdminDashboard({
     <div className="min-h-[calc(100vh-4rem)] bg-[#F8F8FA] text-zinc-950 py-8 px-4 sm:px-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Admin Header & Tab Switcher */}
-        <div className="bg-[#09090B] text-white rounded-2xl p-6 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="bg-[#09090B] text-white rounded-2xl p-6 border border-zinc-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-medium text-[#E5C158] mb-1">Admin Verification Desk</p>
+            <p className="text-xs font-medium text-[#E5C158] mb-1">
+              Admin Verification Desk · {user.email}
+            </p>
             <h1 className="font-display text-2xl font-bold text-white">
               Orders & Platform Control
             </h1>
           </div>
 
-          <div className="inline-flex items-center gap-1 p-1 bg-zinc-900 rounded-xl border border-zinc-800 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex items-center gap-1 p-1 bg-zinc-900 rounded-xl border border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setTab('orders')}
+                className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                  tab === 'orders'
+                    ? 'bg-[#D4AF37] text-[#09090B]'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Table2 className="w-3.5 h-3.5" />
+                <span>Orders ({pendingOrders} Pending)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('settings')}
+                className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                  tab === 'settings'
+                    ? 'bg-[#D4AF37] text-[#09090B]'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Course & Telegram Settings</span>
+              </button>
+            </div>
+
             <button
               type="button"
-              onClick={() => setTab('orders')}
-              className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-                tab === 'orders'
-                  ? 'bg-[#D4AF37] text-[#09090B]'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
+              onClick={onSignOut}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-zinc-300 border border-zinc-700 rounded-xl hover:text-white hover:border-zinc-500 cursor-pointer"
             >
-              <Table2 className="w-3.5 h-3.5" />
-              <span>Orders ({pendingOrders} Pending)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('settings')}
-              className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-                tab === 'settings'
-                  ? 'bg-[#D4AF37] text-[#09090B]'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>Course & Telegram Settings</span>
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign Out</span>
             </button>
           </div>
         </div>
@@ -362,7 +403,7 @@ export default function AdminDashboard({
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by Order ID, UTR, mobile, or name..."
+                    placeholder="Search by Unique Code, UTR, or Mobile..."
                     className="w-full pl-10 pr-4 py-2.5 text-sm bg-[#FAFAFA] border border-zinc-300 rounded-xl focus:outline-none focus:border-[#9A7411]"
                   />
                 </div>
@@ -391,12 +432,10 @@ export default function AdminDashboard({
                 </div>
               </div>
 
-              {/* Verification Warning */}
               <div className="px-5 py-3 bg-amber-50/70 border-b border-zinc-200 text-xs text-amber-900">
-                Verification Protocol: Always confirm the actual ₹{settings.coursePrice} credit in your bank/UPI app matching the UTR number before clicking Approve.
+                Verification Protocol: Always confirm the actual ₹{settings.coursePrice} credit in your bank/UPI app matching the UTR number before clicking APPROVE.
               </div>
 
-              {/* Orders Data Table */}
               {loadingOrders ? (
                 <div className="p-12 text-center">
                   <Loader2 className="w-6 h-6 animate-spin text-[#9A7411] mx-auto mb-2" />
@@ -411,31 +450,27 @@ export default function AdminDashboard({
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold text-zinc-600">
-                        <th className="py-3 px-4 whitespace-nowrap">Order ID</th>
-                        <th className="py-3 px-4 whitespace-nowrap">Customer</th>
-                        <th className="py-3 px-4 whitespace-nowrap">Mobile</th>
-                        <th className="py-3 px-4 whitespace-nowrap">Email</th>
+                        <th className="py-3 px-4 whitespace-nowrap">Unique Order Code</th>
+                        <th className="py-3 px-4 whitespace-nowrap">Customer Name</th>
+                        <th className="py-3 px-4 whitespace-nowrap">Mobile Number</th>
                         <th className="py-3 px-4 whitespace-nowrap">UTR Number</th>
                         <th className="py-3 px-4 whitespace-nowrap">Screenshot</th>
-                        <th className="py-3 px-4 whitespace-nowrap">Date</th>
-                        <th className="py-3 px-4 whitespace-nowrap">Status</th>
+                        <th className="py-3 px-4 whitespace-nowrap">Order Date</th>
+                        <th className="py-3 px-4 whitespace-nowrap">Payment Status</th>
                         <th className="py-3 px-4 whitespace-nowrap text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-200 text-xs">
                       {filteredOrders.map((ord) => (
-                        <tr key={ord.orderId} className="hover:bg-zinc-50/80">
-                          <td className="py-3 px-4 font-mono font-semibold text-zinc-900 whitespace-nowrap tabular-nums">
-                            {ord.orderId}
+                        <tr key={ord.orderCode} className="hover:bg-zinc-50/80">
+                          <td className="py-3 px-4 font-mono font-bold text-zinc-950 whitespace-nowrap tabular-nums">
+                            {ord.orderCode}
                           </td>
                           <td className="py-3 px-4 font-medium text-zinc-900 whitespace-nowrap">
                             {ord.name}
                           </td>
                           <td className="py-3 px-4 font-mono text-zinc-700 whitespace-nowrap tabular-nums">
                             {ord.mobile}
-                          </td>
-                          <td className="py-3 px-4 text-zinc-500 whitespace-nowrap max-w-[160px] truncate">
-                            {ord.email || '—'}
                           </td>
                           <td className="py-3 px-4 font-mono font-semibold text-zinc-900 whitespace-nowrap tabular-nums">
                             {ord.utr}
@@ -457,19 +492,19 @@ export default function AdminDashboard({
                             {ord.status === 'APPROVED' && (
                               <span className="inline-flex items-center gap-1 text-emerald-700">
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                Approved
+                                APPROVED
                               </span>
                             )}
                             {ord.status === 'PENDING' && (
                               <span className="inline-flex items-center gap-1 text-amber-700">
                                 <Clock className="w-3.5 h-3.5" />
-                                Pending
+                                PENDING
                               </span>
                             )}
                             {ord.status === 'REJECTED' && (
                               <span className="inline-flex items-center gap-1 text-red-700">
                                 <XCircle className="w-3.5 h-3.5" />
-                                Rejected
+                                REJECTED
                               </span>
                             )}
                           </td>
@@ -478,26 +513,35 @@ export default function AdminDashboard({
                               <div className="inline-flex items-center gap-2">
                                 <button
                                   type="button"
-                                  disabled={actionBusyId === ord.orderId}
+                                  disabled={actionBusyId === ord.orderCode}
                                   onClick={() => handleApprove(ord)}
                                   className="px-3 py-1.5 font-bold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer"
                                 >
-                                  {actionBusyId === ord.orderId ? '...' : 'Approve'}
+                                  {actionBusyId === ord.orderCode ? '...' : 'APPROVE'}
                                 </button>
                                 <button
                                   type="button"
-                                  disabled={actionBusyId === ord.orderId}
+                                  disabled={actionBusyId === ord.orderCode}
                                   onClick={() => {
                                     setRejectTarget(ord);
                                     setRejectReason(ord.rejectionReason || '');
                                   }}
                                   className="px-3 py-1.5 font-semibold bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors cursor-pointer"
                                 >
-                                  Reject
+                                  REJECT
                                 </button>
                               </div>
                             ) : (
-                              <span className="text-zinc-400 font-medium">Verified</span>
+                              <button
+                                type="button"
+                                disabled={actionBusyId === ord.orderCode}
+                                onClick={() => handleResetInvite(ord.orderCode)}
+                                title="Reset Telegram invite lock if user's link expired"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-600 border border-zinc-200 rounded-lg hover:text-zinc-950 hover:border-zinc-400 cursor-pointer"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>Reset Invite</span>
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -511,7 +555,6 @@ export default function AdminDashboard({
         ) : (
           /* SETTINGS TAB */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Course & Payment Settings */}
             <form
               onSubmit={handleSaveSettings}
               className="lg:col-span-7 bg-white rounded-2xl border border-zinc-200 p-6 sm:p-7 space-y-5"
@@ -660,7 +703,7 @@ export default function AdminDashboard({
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 mb-1.5">
-                  Course Cover Image URL (or Upload)
+                  Course Cover Banner URL (or Upload)
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -784,9 +827,9 @@ export default function AdminDashboard({
 
               <div className="pt-4 border-t border-zinc-800 text-xs text-zinc-400 space-y-2 leading-relaxed">
                 <p className="font-semibold text-zinc-200">Setup Checklist:</p>
-                <p>1. Create a bot via @BotFather and add <code className="text-zinc-200">TELEGRAM_BOT_TOKEN</code> to server environment secrets.</p>
-                <p>2. Add your bot as an <strong>Administrator</strong> in your private Telegram channel with <em>Invite Users via Link</em> permission.</p>
-                <p>3. Enter the numeric channel ID (starts with <code className="text-zinc-200">-100</code>) above. Approved users will receive single-use <code className="text-zinc-200">member_limit: 1</code> invite links without ever exposing your permanent link.</p>
+                <p>1. Set <code className="text-zinc-200">TELEGRAM_BOT_TOKEN</code> in server environment secrets.</p>
+                <p>2. Make the bot an <strong>Administrator</strong> in your private Telegram channel with <em>Invite Users via Link</em> permission.</p>
+                <p>3. Enter the numeric channel ID (starts with <code className="text-zinc-200">-100</code>) above. Each approved Unique Code generates a single-use <code className="text-zinc-200">member_limit=1</code> link once.</p>
               </div>
             </div>
           </div>
@@ -803,9 +846,9 @@ export default function AdminDashboard({
           <div className="w-full max-w-xl bg-[#111114] text-white rounded-2xl border border-zinc-800 overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
               <div>
-                <p className="text-sm font-bold text-white">{inspectOrder.orderId}</p>
+                <p className="text-sm font-bold text-white font-mono">{inspectOrder.orderCode}</p>
                 <p className="text-xs font-mono text-[#E5C158] tabular-nums">
-                  {inspectOrder.name} · ₹{inspectOrder.amount} · UTR: {inspectOrder.utr}
+                  {inspectOrder.name} · {inspectOrder.mobile} · ₹{inspectOrder.amount} · UTR: {inspectOrder.utr}
                 </p>
               </div>
               <button
@@ -820,7 +863,7 @@ export default function AdminDashboard({
             <div className="p-5 max-h-[65vh] overflow-y-auto">
               <SecureScreenshot
                 src={inspectOrder.screenshotUrl}
-                alt={`Payment screenshot for ${inspectOrder.orderId}`}
+                alt={`Payment screenshot for ${inspectOrder.orderCode}`}
                 user={user}
                 className="w-full max-h-[55vh] object-contain rounded-xl mx-auto"
               />
@@ -836,15 +879,15 @@ export default function AdminDashboard({
                   }}
                   className="px-4 py-2 text-xs font-semibold text-red-400 border border-red-900/60 rounded-lg hover:bg-red-950/50 cursor-pointer"
                 >
-                  Reject Payment
+                  REJECT
                 </button>
                 <button
                   type="button"
-                  disabled={actionBusyId === inspectOrder.orderId}
+                  disabled={actionBusyId === inspectOrder.orderCode}
                   onClick={() => handleApprove(inspectOrder)}
                   className="px-5 py-2 text-xs font-bold bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
                 >
-                  {actionBusyId === inspectOrder.orderId ? 'Approving...' : 'Confirm & Approve'}
+                  {actionBusyId === inspectOrder.orderCode ? 'Approving...' : 'APPROVE'}
                 </button>
               </div>
             )}
@@ -865,7 +908,7 @@ export default function AdminDashboard({
           >
             <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between">
               <h3 className="font-display text-base font-bold">
-                Reject Order {rejectTarget.orderId}
+                Reject Order {rejectTarget.orderCode}
               </h3>
               <button
                 type="button"
@@ -882,7 +925,7 @@ export default function AdminDashboard({
               </p>
               <div>
                 <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
-                  Rejection Reason (shown to customer) *
+                  Rejection Reason (shown when customer tracks this code) *
                 </label>
                 <textarea
                   rows={3}
@@ -906,10 +949,10 @@ export default function AdminDashboard({
               </button>
               <button
                 type="submit"
-                disabled={actionBusyId === rejectTarget.orderId}
+                disabled={actionBusyId === rejectTarget.orderCode}
                 className="px-5 py-2 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 cursor-pointer"
               >
-                {actionBusyId === rejectTarget.orderId ? 'Rejecting...' : 'Confirm Rejection'}
+                {actionBusyId === rejectTarget.orderCode ? 'Rejecting...' : 'Confirm Rejection'}
               </button>
             </div>
           </form>

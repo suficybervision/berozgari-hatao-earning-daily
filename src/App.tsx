@@ -6,29 +6,44 @@ import { auth } from './firebase';
 import {
   checkUserIsAdmin,
   DEFAULT_COURSE_SETTINGS,
-  signInWithGoogle,
-  signOutUser,
+  signInAdminWithGoogle,
+  signOutAdmin,
   subscribeCourseSettings,
-  subscribeUserOrders,
 } from './services/courseService';
-import type { AppView, CourseSettings, OrderRecord, ToastNotice } from './types';
+import type { AppView, CourseSettings, ToastNotice } from './types';
 import Navbar from './components/Navbar';
 import LandingPage from './components/LandingPage';
 import CheckoutView from './components/CheckoutView';
-import UserDashboard from './components/UserDashboard';
+import TrackOrderView from './components/TrackOrderView';
 import AdminDashboard from './components/AdminDashboard';
 import LegalModal, { type LegalDocType } from './components/LegalModal';
 
+function resolveViewFromPath(pathname: string): AppView {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === '/admin') return 'admin';
+  if (clean === '/track') return 'track';
+  if (clean === '/checkout') return 'checkout';
+  return 'home';
+}
+
+function pathForView(view: AppView): string {
+  if (view === 'admin') return '/admin';
+  if (view === 'track') return '/track';
+  if (view === 'checkout') return '/checkout';
+  return '/';
+}
+
 export default function App() {
-  const [view, setView] = useState<AppView>('home');
-  const [user, setUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [view, setView] = useState<AppView>(() =>
+    resolveViewFromPath(window.location.pathname)
+  );
+  const [trackInitialCode, setTrackInitialCode] = useState('');
+
+  // Admin-only Firebase Auth state
+  const [adminUser, setAdminUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [settings, setSettings] = useState<CourseSettings>(DEFAULT_COURSE_SETTINGS);
-  const [orders, setOrders] = useState<OrderRecord[]>([]);
-  const [loadingOrders, setLoadingOrders] = useState(false);
-
   const [legalDoc, setLegalDoc] = useState<LegalDocType>(null);
   const [toasts, setToasts] = useState<ToastNotice[]>([]);
 
@@ -43,29 +58,34 @@ export default function App() {
     []
   );
 
+  // Sync browser back/forward navigation with URL paths (/admin, /track, /checkout, /)
+  useEffect(() => {
+    const handlePopState = () => {
+      setView(resolveViewFromPath(window.location.pathname));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Subscribe to public course settings
   useEffect(() => {
     const unsub = subscribeCourseSettings(
       (next) => setSettings(next),
       () => {
-        // Fallback smoothly to DEFAULT_COURSE_SETTINGS if offline or uninitialized
+        // Fallback smoothly to DEFAULT_COURSE_SETTINGS
       }
     );
     return () => unsub();
   }, []);
 
-  // Listen to Firebase Auth state & resolve Admin authorization
+  // Admin Authentication listener (only used by /admin)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      setAuthReady(true);
-
+      setAdminUser(currentUser);
       if (!currentUser) {
         setIsAdmin(false);
-        setOrders([]);
         return;
       }
-
       try {
         const adminFlag = await checkUserIsAdmin(currentUser);
         setIsAdmin(adminFlag);
@@ -76,48 +96,28 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Subscribe to current user's orders only after auth is ready & user is signed in
-  useEffect(() => {
-    if (!authReady || !user) {
-      setOrders([]);
-      setLoadingOrders(false);
-      return;
-    }
-
-    setLoadingOrders(true);
-    const unsub = subscribeUserOrders(
-      user.uid,
-      (list) => {
-        setOrders(list);
-        setLoadingOrders(false);
-      },
-      (err) => {
-        setLoadingOrders(false);
-        notify('error', 'Order Sync Issue', err.message);
-      }
-    );
-    return () => unsub();
-  }, [authReady, user, notify]);
-
-  const handleSignIn = useCallback(async () => {
+  const handleAdminSignIn = useCallback(async () => {
     try {
-      const signedInUser = await signInWithGoogle();
-      notify('success', 'Signed In', `Welcome, ${signedInUser.displayName || signedInUser.email}`);
+      const signedInUser = await signInAdminWithGoogle();
+      notify('success', 'Admin Signed In', signedInUser.email || undefined);
       return signedInUser;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Google Sign-In was cancelled.';
+      const msg = err instanceof Error ? err.message : 'Admin Sign-In was cancelled.';
       notify('error', 'Sign-In Failed', msg);
       throw err;
     }
   }, [notify]);
 
-  const handleSignOut = useCallback(async () => {
-    await signOutUser();
-    setView('home');
-    notify('info', 'Signed Out', 'You have been signed out safely.');
+  const handleAdminSignOut = useCallback(async () => {
+    await signOutAdmin();
+    notify('info', 'Signed Out', 'Admin session ended.');
   }, [notify]);
 
   const handleNavigate = useCallback((nextView: AppView, sectionId?: string) => {
+    const targetPath = pathForView(nextView);
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
+    }
     setView(nextView);
     if (sectionId) {
       setTimeout(() => {
@@ -129,15 +129,18 @@ export default function App() {
     }
   }, []);
 
-  const hasApprovedOrder = orders.some((o) => o.status === 'APPROVED');
+  const handleTrackWithCode = useCallback(
+    (code?: string) => {
+      setTrackInitialCode(code || '');
+      handleNavigate('track');
+    },
+    [handleNavigate]
+  );
 
   return (
     <div className="min-h-screen flex flex-col bg-[#09090B]">
       <Navbar
         currentView={view}
-        user={user}
-        isAdmin={isAdmin}
-        hasApprovedOrder={hasApprovedOrder}
         coursePrice={settings.coursePrice}
         isAvailable={settings.isAvailable}
         onNavigate={handleNavigate}
@@ -147,14 +150,9 @@ export default function App() {
         {view === 'home' && (
           <LandingPage
             settings={settings}
-            user={user}
-            isAdmin={isAdmin}
-            hasApprovedOrder={hasApprovedOrder}
             onBuyNow={() => handleNavigate('checkout')}
+            onTrackWithCode={handleTrackWithCode}
             onNavigate={handleNavigate}
-            onSignIn={async () => {
-              await handleSignIn();
-            }}
             onOpenLegal={setLegalDoc}
             onNotify={notify}
           />
@@ -163,21 +161,16 @@ export default function App() {
         {view === 'checkout' && (
           <CheckoutView
             settings={settings}
-            user={user}
-            onSignIn={handleSignIn}
             onNavigate={handleNavigate}
+            onTrackCode={(code) => handleTrackWithCode(code)}
             onNotify={notify}
           />
         )}
 
-        {view === 'dashboard' && (
-          <UserDashboard
-            user={user}
-            orders={orders}
-            loadingOrders={loadingOrders}
+        {view === 'track' && (
+          <TrackOrderView
+            initialCode={trackInitialCode}
             settings={settings}
-            onSignIn={handleSignIn}
-            onSignOut={handleSignOut}
             onNavigate={handleNavigate}
             onNotify={notify}
           />
@@ -185,10 +178,11 @@ export default function App() {
 
         {view === 'admin' && (
           <AdminDashboard
-            user={user}
+            user={adminUser}
             isAdmin={isAdmin}
             settings={settings}
-            onSignIn={handleSignIn}
+            onSignIn={handleAdminSignIn}
+            onSignOut={handleAdminSignOut}
             onNotify={notify}
           />
         )}

@@ -8,4 +8,5 @@ coverage/
 !.env.example
 uploads/
 .telegram-config.json
+.access-grants.json
 

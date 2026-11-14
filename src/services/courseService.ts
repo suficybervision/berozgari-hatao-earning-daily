@@ -8,15 +8,19 @@ import {
   serverTimestamp,
   setDoc,
   Timestamp,
-  updateDoc,
-  where,
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { signInWithPopup, signOut, type User } from 'firebase/auth';
 import { auth, db, googleProvider, handleFirestoreError, OperationType, storage } from '../firebase';
-import type { CourseSettings, OrderRecord, OrderStatus, TelegramConfigStatus } from '../types';
+import type {
+  CourseSettings,
+  OrderRecord,
+  OrderStatus,
+  TelegramConfigStatus,
+  TrackingResult,
+} from '../types';
 
 export const BOOTSTRAPPED_ADMIN_EMAIL = 'hajshdbdb262837@gmail.com';
 export const DEFAULT_COURSE_COVER = '/assets/aistudio/file_00000000b70c820b8abadde4ba233ee5_8293c598.webp';
@@ -45,11 +49,9 @@ function toDateOrNull(val: unknown): Date | null {
 
 function mapOrderDoc(data: Record<string, unknown>): OrderRecord {
   return {
-    orderId: String(data.orderId || ''),
-    userId: String(data.userId || ''),
+    orderCode: String(data.orderCode || ''),
     name: String(data.name || ''),
     mobile: String(data.mobile || ''),
-    email: String(data.email || ''),
     utr: String(data.utr || ''),
     screenshotUrl: String(data.screenshotUrl || ''),
     amount: Number(data.amount || 0),
@@ -62,12 +64,30 @@ function mapOrderDoc(data: Record<string, unknown>): OrderRecord {
   };
 }
 
-export async function signInWithGoogle(): Promise<User> {
+export function normalizeUtr(input: string): string {
+  return input.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+}
+
+export function normalizeOrderCode(input: string): string {
+  return input.trim().toUpperCase();
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Admin Authentication Only
+export async function signInAdminWithGoogle(): Promise<User> {
   const credential = await signInWithPopup(auth, googleProvider);
   return credential.user;
 }
 
-export async function signOutUser(): Promise<void> {
+export async function signOutAdmin(): Promise<void> {
   await signOut(auth);
 }
 
@@ -142,73 +162,6 @@ export async function saveCourseSettings(settings: CourseSettings): Promise<void
   }
 }
 
-export function generateOrderId(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let suffix = '';
-  const randomVals = new Uint32Array(6);
-  crypto.getRandomValues(randomVals);
-  for (let i = 0; i < 6; i++) {
-    suffix += chars[randomVals[i] % chars.length];
-  }
-  return `ORD-${y}${m}${d}-${suffix}`;
-}
-
-export function normalizeUtr(input: string): string {
-  return input.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Failed to read image file.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-export async function uploadPaymentScreenshot(
-  file: File,
-  user: User,
-  orderId: string
-): Promise<string> {
-  const validTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-  if (!validTypes.includes(file.type)) {
-    throw new Error('Only JPG, JPEG, and PNG screenshots are allowed.');
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    throw new Error('Screenshot file size must be under 5 MB.');
-  }
-
-  // Primary: upload directly to Firebase Storage
-  try {
-    const ext = file.type === 'image/png' ? 'png' : 'jpg';
-    const storageRef = ref(storage, `payment_screenshots/${user.uid}/${orderId}.${ext}`);
-    await uploadBytes(storageRef, file, { contentType: file.type });
-    return await getDownloadURL(storageRef);
-  } catch {
-    // Fallback: authenticated backend upload when Firebase Storage bucket rules aren't configured yet
-    const dataUrl = await readFileAsDataUrl(file);
-    const idToken = await user.getIdToken();
-    const res = await fetch('/api/uploads/screenshot', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({ dataUrl, orderId }),
-    });
-    const payload = (await res.json()) as { url?: string; error?: string };
-    if (!res.ok || !payload.url) {
-      throw new Error(payload.error || 'Failed to upload payment screenshot.');
-    }
-    return payload.url;
-  }
-}
-
 export async function uploadCourseAsset(
   file: File,
   user: User,
@@ -246,120 +199,105 @@ export async function uploadCourseAsset(
   }
 }
 
-export async function submitPaymentOrder(params: {
-  user: User;
-  orderId: string;
+// Public Student Order Submission (No Student Login Required)
+export async function submitOrderRequest(params: {
   name: string;
   mobile: string;
-  email: string;
   utr: string;
-  screenshotUrl: string;
-  amount: number;
-}): Promise<void> {
-  const normalizedUtr = normalizeUtr(params.utr);
-  if (normalizedUtr.length < 6 || normalizedUtr.length > 40) {
-    throw new Error('Please enter a valid UTR / Transaction Reference Number (6–40 alphanumeric characters).');
+  file: File;
+}): Promise<{ orderCode: string; status: OrderStatus; amount: number }> {
+  const validTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+  if (!validTypes.includes(params.file.type)) {
+    throw new Error('Only JPG, JPEG, and PNG payment screenshots are allowed.');
+  }
+  if (params.file.size > 5 * 1024 * 1024) {
+    throw new Error('Screenshot file size must be under 5 MB.');
   }
 
-  // Check duplicate UTR cleanly before committing
-  const utrPath = `utr_locks/${normalizedUtr}`;
-  let utrExists = false;
-  try {
-    const existingUtr = await getDoc(doc(db, 'utr_locks', normalizedUtr));
-    utrExists = existingUtr.exists();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, utrPath);
+  const screenshotDataUrl = await readFileAsDataUrl(params.file);
+
+  const res = await fetch('/api/orders/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: params.name.trim(),
+      mobile: params.mobile.trim(),
+      utr: normalizeUtr(params.utr),
+      screenshotDataUrl,
+    }),
+  });
+
+  const data = (await res.json()) as {
+    orderCode?: string;
+    status?: OrderStatus;
+    amount?: number;
+    error?: string;
+  };
+
+  if (!res.ok || !data.orderCode) {
+    throw new Error(data.error || 'Failed to submit payment request.');
   }
 
-  if (utrExists) {
-    throw new Error(
-      `UTR "${normalizedUtr}" has already been submitted. Duplicate UTR submissions are not allowed.`
-    );
-  }
-
-  // Upsert user profile first
-  const userPath = `users/${params.user.uid}`;
-  try {
-    const userRef = doc(db, 'users', params.user.uid);
-    const userSnap = await getDoc(userRef);
-    if (!userSnap.exists()) {
-      await setDoc(userRef, {
-        uid: params.user.uid,
-        name: params.name.trim().slice(0, 120),
-        mobile: params.mobile.trim().slice(0, 20),
-        email: (params.email.trim() || params.user.email || '').slice(0, 160),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    } else {
-      await updateDoc(userRef, {
-        name: params.name.trim().slice(0, 120),
-        mobile: params.mobile.trim().slice(0, 20),
-        email: (params.email.trim() || params.user.email || '').slice(0, 160),
-        updatedAt: serverTimestamp(),
-      });
-    }
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, userPath);
-  }
-
-  // Atomic batch write: orders/{orderId} + utr_locks/{utr}
-  const orderPath = `orders/${params.orderId}`;
-  try {
-    const batch = writeBatch(db);
-    batch.set(doc(db, 'orders', params.orderId), {
-      orderId: params.orderId,
-      userId: params.user.uid,
-      name: params.name.trim().slice(0, 120),
-      mobile: params.mobile.trim().slice(0, 15),
-      email: (params.email.trim() || params.user.email || '').slice(0, 160),
-      utr: normalizedUtr,
-      screenshotUrl: params.screenshotUrl.slice(0, 2048),
-      amount: Number(params.amount),
-      status: 'PENDING',
-      rejectionReason: '',
-      adminId: '',
-      createdAt: serverTimestamp(),
-      approvedAt: null,
-      updatedAt: serverTimestamp(),
-    });
-    batch.set(doc(db, 'utr_locks', normalizedUtr), {
-      utr: normalizedUtr,
-      orderId: params.orderId,
-      userId: params.user.uid,
-      createdAt: serverTimestamp(),
-    });
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, orderPath);
-  }
+  return {
+    orderCode: data.orderCode,
+    status: data.status || 'PENDING',
+    amount: Number(data.amount || 99),
+  };
 }
 
-export function subscribeUserOrders(
-  userId: string,
-  onChange: (orders: OrderRecord[]) => void,
-  onError?: (err: Error) => void
-): Unsubscribe {
-  const path = 'orders';
-  const q = query(collection(db, 'orders'), where('userId', '==', userId));
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list = snap.docs
-        .map((d) => mapOrderDoc(d.data()))
-        .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
-      onChange(list);
-    },
-    (error) => {
-      try {
-        handleFirestoreError(error, OperationType.LIST, path);
-      } catch (wrapped) {
-        if (onError && wrapped instanceof Error) onError(wrapped);
-      }
-    }
-  );
+// Public Unique Order Code Tracking (No Login Required)
+export async function trackOrderByCode(orderCode: string): Promise<TrackingResult> {
+  const cleanCode = normalizeOrderCode(orderCode);
+  const res = await fetch('/api/orders/track', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderCode: cleanCode }),
+  });
+
+  const data = (await res.json()) as Partial<TrackingResult> & { error?: string };
+  if (!res.ok || !data.orderCode) {
+    throw new Error(data.error || 'Order code not found.');
+  }
+
+  return {
+    orderCode: data.orderCode,
+    status: (data.status as OrderStatus) || 'PENDING',
+    rejectionReason: String(data.rejectionReason || ''),
+    amount: Number(data.amount || 99),
+    createdAt: data.createdAt || null,
+    updatedAt: data.updatedAt || null,
+    accessClaimed: Boolean(data.accessClaimed),
+  };
 }
 
+// Public Telegram Access Generation via Verified Approved Order Code
+export async function requestTelegramInviteByCode(
+  orderCode: string
+): Promise<{ inviteLink: string; expiresAt: number }> {
+  const cleanCode = normalizeOrderCode(orderCode);
+  const res = await fetch('/api/telegram/invite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderCode: cleanCode }),
+  });
+
+  const data = (await res.json()) as {
+    inviteLink?: string;
+    expiresAt?: number;
+    error?: string;
+  };
+
+  if (!res.ok || !data.inviteLink) {
+    throw new Error(data.error || 'Unable to generate Telegram access link.');
+  }
+
+  return {
+    inviteLink: data.inviteLink,
+    expiresAt: data.expiresAt || Date.now() + 300000,
+  };
+}
+
+// Admin Orders Management
 export function subscribeAllOrders(
   onChange: (orders: OrderRecord[]) => void,
   onError?: (err: Error) => void
@@ -382,35 +320,30 @@ export function subscribeAllOrders(
   );
 }
 
-export async function trackOrderById(orderId: string): Promise<OrderRecord | null> {
-  const cleanId = orderId.trim();
-  const path = `orders/${cleanId}`;
+export async function approveOrder(orderCode: string, adminUid: string): Promise<void> {
+  const path = `orders/${orderCode}`;
   try {
-    const snap = await getDoc(doc(db, 'orders', cleanId));
-    if (!snap.exists()) return null;
-    return mapOrderDoc(snap.data());
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-  }
-}
-
-export async function approveOrder(orderId: string, adminUid: string): Promise<void> {
-  const path = `orders/${orderId}`;
-  try {
-    await updateDoc(doc(db, 'orders', orderId), {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'orders', orderCode), {
       status: 'APPROVED',
       adminId: adminUid,
       approvedAt: serverTimestamp(),
       rejectionReason: '',
       updatedAt: serverTimestamp(),
     });
+    batch.update(doc(db, 'order_tracking', orderCode), {
+      status: 'APPROVED',
+      rejectionReason: '',
+      updatedAt: serverTimestamp(),
+    });
+    await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
 
 export async function rejectOrder(
-  orderId: string,
+  orderCode: string,
   adminUid: string,
   reason: string
 ): Promise<void> {
@@ -418,46 +351,42 @@ export async function rejectOrder(
   if (trimmed.length < 3) {
     throw new Error('Please enter a clear rejection reason (at least 3 characters).');
   }
-  const path = `orders/${orderId}`;
+  const path = `orders/${orderCode}`;
   try {
-    await updateDoc(doc(db, 'orders', orderId), {
+    const cleanReason = trimmed.slice(0, 500);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'orders', orderCode), {
       status: 'REJECTED',
       adminId: adminUid,
       approvedAt: null,
-      rejectionReason: trimmed.slice(0, 500),
+      rejectionReason: cleanReason,
       updatedAt: serverTimestamp(),
     });
+    batch.update(doc(db, 'order_tracking', orderCode), {
+      status: 'REJECTED',
+      rejectionReason: cleanReason,
+      updatedAt: serverTimestamp(),
+    });
+    await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
 
-export async function requestTelegramInvite(
-  orderId: string,
-  user: User
-): Promise<{ inviteLink: string; expiresAt: number }> {
+export async function resetTelegramAccessGrant(user: User, orderCode: string): Promise<void> {
   const idToken = await user.getIdToken();
-  const res = await fetch('/api/telegram/invite', {
+  const res = await fetch('/api/admin/reset-access-grant', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${idToken}`,
     },
-    body: JSON.stringify({ orderId }),
+    body: JSON.stringify({ orderCode }),
   });
-  const data = (await res.json()) as {
-    inviteLink?: string;
-    expiresAt?: number;
-    error?: string;
-    code?: string;
-  };
-  if (!res.ok || !data.inviteLink) {
-    throw new Error(data.error || 'Unable to generate Telegram access link.');
+  if (!res.ok) {
+    const data = (await res.json()) as { error?: string };
+    throw new Error(data.error || 'Failed to reset access grant.');
   }
-  return {
-    inviteLink: data.inviteLink,
-    expiresAt: data.expiresAt || Date.now() + 600000,
-  };
 }
 
 export async function fetchAdminTelegramStatus(user: User): Promise<TelegramConfigStatus> {

@@ -12,6 +12,10 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidOrderCode(code) {
+      return code is string && code.size() == 14 && code.matches('^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$');
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -40,17 +44,6 @@ service cloud.firestore {
     }
 
     // 3. Entity Validation Blueprints
-    function isValidUser(data, userId) {
-      return data.keys().hasAll(['uid', 'name', 'mobile', 'email', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'name', 'mobile', 'email', 'createdAt', 'updatedAt'])
-        && data.uid is string && data.uid == userId && isValidId(data.uid)
-        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
-        && data.mobile is string && data.mobile.size() <= 20
-        && data.email is string && data.email.size() <= 160
-        && data.createdAt is timestamp
-        && data.updatedAt is timestamp;
-    }
-
     function isValidAdmin(data, userId) {
       return data.keys().hasAll(['uid', 'email', 'role', 'createdAt'])
         && data.keys().hasOnly(['uid', 'email', 'role', 'createdAt'])
@@ -84,22 +77,20 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
-    function isValidOrder(data) {
+    function isValidOrder(data, code) {
       return data.keys().hasAll([
-          'orderId', 'userId', 'name', 'mobile', 'email',
-          'utr', 'screenshotUrl', 'amount', 'status',
-          'rejectionReason', 'adminId', 'createdAt', 'approvedAt', 'updatedAt'
+          'orderCode', 'name', 'mobile', 'utr', 'screenshotUrl',
+          'amount', 'status', 'rejectionReason', 'adminId',
+          'createdAt', 'approvedAt', 'updatedAt'
         ])
         && data.keys().hasOnly([
-          'orderId', 'userId', 'name', 'mobile', 'email',
-          'utr', 'screenshotUrl', 'amount', 'status',
-          'rejectionReason', 'adminId', 'createdAt', 'approvedAt', 'updatedAt'
+          'orderCode', 'name', 'mobile', 'utr', 'screenshotUrl',
+          'amount', 'status', 'rejectionReason', 'adminId',
+          'createdAt', 'approvedAt', 'updatedAt'
         ])
-        && data.orderId is string && data.orderId.size() >= 4 && data.orderId.size() <= 64 && data.orderId.matches('^[a-zA-Z0-9_\\-]+$')
-        && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.orderCode is string && data.orderCode == code && isValidOrderCode(data.orderCode)
         && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
         && data.mobile is string && data.mobile.size() >= 10 && data.mobile.size() <= 15 && data.mobile.matches('^[0-9+\\-\\s]{10,15}$')
-        && data.email is string && data.email.size() <= 160
         && data.utr is string && data.utr.size() >= 6 && data.utr.size() <= 40 && data.utr.matches('^[A-Z0-9]{6,40}$')
         && data.screenshotUrl is string && data.screenshotUrl.size() >= 5 && data.screenshotUrl.size() <= 2048
         && data.amount is number && data.amount >= 1 && data.amount <= 1000000
@@ -111,38 +102,33 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidOrderTracking(data, code) {
+      return data.keys().hasAll(['orderCode', 'amount', 'status', 'rejectionReason', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orderCode', 'amount', 'status', 'rejectionReason', 'createdAt', 'updatedAt'])
+        && data.orderCode is string && data.orderCode == code && isValidOrderCode(data.orderCode)
+        && data.amount is number && data.amount >= 1 && data.amount <= 1000000
+        && data.status in ['PENDING', 'APPROVED', 'REJECTED']
+        && data.rejectionReason is string && data.rejectionReason.size() <= 500
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     function isValidUtrLock(data, utrId) {
-      return data.keys().hasAll(['utr', 'orderId', 'userId', 'createdAt'])
-        && data.keys().hasOnly(['utr', 'orderId', 'userId', 'createdAt'])
+      return data.keys().hasAll(['utr', 'orderCode', 'createdAt'])
+        && data.keys().hasOnly(['utr', 'orderCode', 'createdAt'])
         && data.utr is string && data.utr == utrId && data.utr.size() >= 6 && data.utr.size() <= 40 && data.utr.matches('^[A-Z0-9]{6,40}$')
-        && data.orderId is string && data.orderId.size() >= 4 && data.orderId.size() <= 64 && data.orderId.matches('^[a-zA-Z0-9_\\-]+$')
-        && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.orderCode is string && isValidOrderCode(data.orderCode)
         && data.createdAt is timestamp;
     }
 
-    // 4. Collection Rules
-    match /users/{userId} {
-      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
-      allow list: if isAdmin();
-      allow create: if isVerifiedUser()
-        && isValidId(userId)
-        && isOwner(userId)
-        && isValidUser(incoming(), userId)
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
-      allow update: if isVerifiedUser()
-        && isValidId(userId)
-        && isValidUser(incoming(), userId)
-        && incoming().uid == existing().uid
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && (
-          isAdmin() ||
-          (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'mobile', 'email', 'updatedAt']))
-        );
-      allow delete: if false;
+    function isValidAccessGrant(data, code) {
+      return data.keys().hasAll(['orderCode', 'grantedAt'])
+        && data.keys().hasOnly(['orderCode', 'grantedAt'])
+        && data.orderCode is string && data.orderCode == code && isValidOrderCode(data.orderCode)
+        && data.grantedAt is timestamp;
     }
 
+    // 4. Collection Rules
     match /admins/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isAdmin();
@@ -172,14 +158,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    match /orders/{orderId} {
-      allow get: if isSignedIn() && isValidId(orderId) && (existing().userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
-      allow create: if isVerifiedUser()
-        && isValidId(orderId)
-        && isValidOrder(incoming())
-        && incoming().orderId == orderId
-        && incoming().userId == request.auth.uid
+    // Orders contain customer PII (name, mobile, utr, screenshot) -> strictly Admin read/update only
+    match /orders/{orderCode} {
+      allow get: if isAdmin() && isValidOrderCode(orderCode);
+      allow list: if isAdmin();
+      allow create: if isValidOrderCode(orderCode)
+        && isValidOrder(incoming(), orderCode)
         && incoming().status == 'PENDING'
         && incoming().rejectionReason == ''
         && incoming().adminId == ''
@@ -187,16 +171,15 @@ service cloud.firestore {
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && !exists(/databases/$(database)/documents/utr_locks/$(incoming().utr))
-        && existsAfter(/databases/$(database)/documents/utr_locks/$(incoming().utr));
+        && existsAfter(/databases/$(database)/documents/utr_locks/$(incoming().utr))
+        && existsAfter(/databases/$(database)/documents/order_tracking/$(orderCode));
       allow update: if isAdmin()
-        && isValidId(orderId)
-        && isValidOrder(incoming())
+        && isValidOrderCode(orderCode)
+        && isValidOrder(incoming(), orderCode)
         && existing().status != 'APPROVED'
-        && incoming().orderId == existing().orderId
-        && incoming().userId == existing().userId
+        && incoming().orderCode == existing().orderCode
         && incoming().name == existing().name
         && incoming().mobile == existing().mobile
-        && incoming().email == existing().email
         && incoming().utr == existing().utr
         && incoming().screenshotUrl == existing().screenshotUrl
         && incoming().amount == existing().amount
@@ -211,17 +194,54 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    match /utr_locks/{utrId} {
-      allow get: if isSignedIn() && isValidId(utrId);
+    // PII-free tracking status split collection keyed by unguessable cryptographically random orderCode
+    match /order_tracking/{orderCode} {
+      allow get: if isValidOrderCode(orderCode);
       allow list: if false;
-      allow create: if isVerifiedUser()
-        && isValidId(utrId)
-        && isValidUtrLock(incoming(), utrId)
-        && incoming().userId == request.auth.uid
+      allow create: if isValidOrderCode(orderCode)
+        && isValidOrderTracking(incoming(), orderCode)
+        && incoming().status == 'PENDING'
+        && incoming().rejectionReason == ''
         && incoming().createdAt == request.time
-        && existsAfter(/databases/$(database)/documents/orders/$(incoming().orderId));
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/orders/$(orderCode));
+      allow update: if isAdmin()
+        && isValidOrderCode(orderCode)
+        && isValidOrderTracking(incoming(), orderCode)
+        && existing().status != 'APPROVED'
+        && incoming().orderCode == existing().orderCode
+        && incoming().amount == existing().amount
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'rejectionReason', 'updatedAt'])
+        && (
+          (incoming().status == 'APPROVED' && incoming().rejectionReason == '') ||
+          (incoming().status == 'REJECTED' && incoming().rejectionReason.size() >= 3)
+        );
+      allow delete: if false;
+    }
+
+    match /utr_locks/{utrId} {
+      allow get: if isValidId(utrId);
+      allow list: if false;
+      allow create: if isValidId(utrId)
+        && isValidUtrLock(incoming(), utrId)
+        && incoming().createdAt == request.time
+        && existsAfter(/databases/$(database)/documents/orders/$(incoming().orderCode));
       allow update: if false;
       allow delete: if isAdmin() && isValidId(utrId);
+    }
+
+    // Single-use Telegram invite issuance lock per approved orderCode
+    match /access_grants/{orderCode} {
+      allow get: if isValidOrderCode(orderCode);
+      allow list: if false;
+      allow create: if isValidOrderCode(orderCode)
+        && isValidAccessGrant(incoming(), orderCode)
+        && incoming().grantedAt == request.time
+        && get(/databases/$(database)/documents/order_tracking/$(orderCode)).data.status == 'APPROVED';
+      allow update: if false;
+      allow delete: if isAdmin() && isValidOrderCode(orderCode);
     }
   }
 }

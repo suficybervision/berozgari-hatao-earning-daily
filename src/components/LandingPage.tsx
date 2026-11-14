@@ -1,28 +1,20 @@
 import { useState } from 'react';
 import {
   ArrowRight,
-  CheckCircle2,
   ChevronDown,
-  Clock,
   Lock,
   MessageCircle,
   Search,
   ShieldCheck,
-  XCircle,
 } from 'lucide-react';
-import type { User } from 'firebase/auth';
-import type { AppView, CourseSettings, OrderRecord } from '../types';
+import type { AppView, CourseSettings } from '../types';
 import type { LegalDocType } from './LegalModal';
-import { trackOrderById } from '../services/courseService';
 
 interface LandingPageProps {
   settings: CourseSettings;
-  user: User | null;
-  isAdmin: boolean;
-  hasApprovedOrder: boolean;
   onBuyNow: () => void;
+  onTrackWithCode: (code?: string) => void;
   onNavigate: (view: AppView) => void;
-  onSignIn: () => Promise<void>;
   onOpenLegal: (doc: LegalDocType) => void;
   onNotify: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
 }
@@ -72,41 +64,38 @@ const TRUST_ITEMS = [
     num: '03',
     title: 'Instant access after approval',
     description:
-      'The moment your payment is approved, your dashboard unlocks a single-use private Telegram channel invite link.',
+      'Enter your Unique Order Code anytime on the tracking page — once approved, unlock your single-use Telegram invite instantly.',
   },
 ];
 
 const FAQS = [
   {
     q: 'How do I receive course access after paying ₹99?',
-    a: 'Pay ₹99 via UPI ID or QR code on the checkout page, enter your 12-digit UTR / Transaction Reference Number, and upload the payment screenshot. Once our admin verifies your payment, your User Dashboard displays a golden VIEW NOW button to generate your private Telegram link.',
+    a: 'Pay ₹99 via UPI ID or QR code on the checkout page, enter your UTR / Transaction ID, and upload the payment screenshot. You will receive a Unique Order Code (e.g., SUFI-8K29-XP51). Save that code, and enter it under "ALREADY PAID? TRACK ACCESS" to unlock your private Telegram link once verified.',
   },
   {
-    q: 'Where do I find my UTR / Transaction Reference Number?',
+    q: 'Do I need to create an account or sign in with Google?',
+    a: 'No account or Google login is required. Everything works securely with your Unique Order Code generated at checkout.',
+  },
+  {
+    q: 'Where do I find my UTR / Transaction ID?',
     a: 'Open PhonePe, Google Pay, Paytm, or BHIM and tap your completed ₹99 payment receipt. Look for the 12-digit "UTR", "UPI Ref No.", or "Transaction ID".',
   },
   {
     q: 'How long does payment verification take?',
-    a: 'Most payments are manually verified within 15 to 60 minutes during active hours. You can track real-time approval status anytime in My Dashboard or via Order Tracking below.',
+    a: 'Most payments are manually verified within 15 to 60 minutes during active hours. Check status anytime using your Unique Order Code.',
   },
   {
     q: 'Can I share my Telegram invite link with someone else?',
-    a: 'No. For community security, each approved user receives a backend-generated single-use Telegram invite link (member limit: 1) with an expiration window.',
-  },
-  {
-    q: 'What happens if my payment request is rejected?',
-    a: 'If an incorrect UTR or unclear screenshot was uploaded, the exact rejection reason appears in your dashboard along with a "Submit New Payment Request" button.',
+    a: 'No. Each approved Unique Order Code generates a single-use Telegram invite link (member limit: 1) with a short expiry window.',
   },
 ];
 
 export default function LandingPage({
   settings,
-  user,
-  isAdmin,
-  hasApprovedOrder,
   onBuyNow,
+  onTrackWithCode,
   onNavigate,
-  onSignIn,
   onOpenLegal,
   onNotify,
 }: LandingPageProps) {
@@ -114,45 +103,11 @@ export default function LandingPage({
   const [toolsImgFailed, setToolsImgFailed] = useState(false);
   const [trustImgFailed, setTrustImgFailed] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [quickCode, setQuickCode] = useState('');
 
-  const [trackInput, setTrackInput] = useState('');
-  const [tracking, setTracking] = useState(false);
-  const [trackedOrder, setTrackedOrder] = useState<OrderRecord | null>(null);
-  const [trackError, setTrackError] = useState('');
-
-  const handleTrackSubmit = async (e: React.FormEvent) => {
+  const handleQuickTrackSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setTrackError('');
-    setTrackedOrder(null);
-
-    const cleaned = trackInput.trim();
-    if (!cleaned || !/^[a-zA-Z0-9_-]{4,64}$/.test(cleaned)) {
-      setTrackError('Please enter a valid Order ID (e.g., ORD-20261114-A7B2C9).');
-      return;
-    }
-
-    if (!user) {
-      try {
-        await onSignIn();
-      } catch {
-        setTrackError('Please sign in with Google to securely view your order status.');
-        return;
-      }
-    }
-
-    setTracking(true);
-    try {
-      const found = await trackOrderById(cleaned);
-      if (!found) {
-        setTrackError('No order found with that Order ID under your account.');
-      } else {
-        setTrackedOrder(found);
-      }
-    } catch {
-      setTrackError('Order not found or belongs to a different account.');
-    } finally {
-      setTracking(false);
-    }
+    onTrackWithCode(quickCode.trim().toUpperCase());
   };
 
   const handleWhatsAppClick = () => {
@@ -161,7 +116,7 @@ export default function LandingPage({
       onNotify(
         'info',
         'WhatsApp Support Not Configured',
-        'Administrator can add a WhatsApp support number in Admin Console > Settings.'
+        'Administrator can add a WhatsApp support number in /admin Settings.'
       );
       return;
     }
@@ -176,7 +131,7 @@ export default function LandingPage({
       {/* 1. HERO SECTION (Obsidian Black + Gold) */}
       <section className="bg-[#09090B] text-white border-b border-zinc-800/80">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-12 pb-16 lg:pt-16 lg:pb-20">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-stretch">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
             {/* Left Column: Proposition & Primary CTA */}
             <div className="lg:col-span-6 flex flex-col justify-center">
               <p className="text-xs font-medium tracking-wider text-[#E5C158] mb-4">
@@ -210,42 +165,31 @@ export default function LandingPage({
                 )}
               </div>
 
-              {/* Single Dominant Action */}
+              {/* Primary & Track Access CTAs */}
               <div className="flex flex-wrap items-center gap-4">
-                {hasApprovedOrder ? (
-                  <button
-                    type="button"
-                    onClick={() => onNavigate('dashboard')}
-                    className="inline-flex items-center justify-center gap-3 px-8 py-4 text-base font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] via-[#F3D578] to-[#D4AF37] rounded-xl shadow-[0_8px_30px_rgba(212,175,55,0.28)] hover:brightness-105 active:scale-[0.99] transition-all cursor-pointer"
-                  >
-                    <span>VIEW NOW</span>
-                    <ArrowRight className="w-5 h-5" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={!settings.isAvailable}
-                    onClick={onBuyNow}
-                    className="inline-flex items-center justify-center gap-3 px-8 py-4 text-base font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] via-[#F3D578] to-[#D4AF37] rounded-xl shadow-[0_8px_30px_rgba(212,175,55,0.28)] hover:brightness-105 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer tabular-nums"
-                  >
-                    <span>
-                      {settings.isAvailable ? `BUY NOW — ₹${settings.coursePrice}` : 'ENROLLMENT PAUSED'}
-                    </span>
-                    <ArrowRight className="w-5 h-5" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  disabled={!settings.isAvailable}
+                  onClick={onBuyNow}
+                  className="inline-flex items-center justify-center gap-3 px-8 py-4 text-base font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] via-[#F3D578] to-[#D4AF37] rounded-xl shadow-[0_8px_30px_rgba(212,175,55,0.28)] hover:brightness-105 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer tabular-nums"
+                >
+                  <span>
+                    {settings.isAvailable ? `BUY NOW — ₹${settings.coursePrice}` : 'ENROLLMENT PAUSED'}
+                  </span>
+                  <ArrowRight className="w-5 h-5" />
+                </button>
 
                 <button
                   type="button"
-                  onClick={() => onNavigate('dashboard')}
-                  className="inline-flex items-center justify-center px-6 py-4 text-sm font-semibold text-zinc-200 border border-zinc-700 rounded-xl hover:border-zinc-500 hover:text-white transition-colors cursor-pointer"
+                  onClick={() => onNavigate('track')}
+                  className="inline-flex items-center justify-center px-6 py-4 text-sm font-semibold text-zinc-200 border border-zinc-700 rounded-xl hover:border-[#D4AF37] hover:text-white transition-colors cursor-pointer"
                 >
-                  {user ? 'Open My Dashboard' : 'Already Paid? Track Access'}
+                  ALREADY PAID? TRACK ACCESS
                 </button>
               </div>
             </div>
 
-            {/* Right Column: Large Course Cover Visual */}
+            {/* Right Column: Large Course Banner Visual */}
             <div className="lg:col-span-6 flex items-center">
               <div className="w-full aspect-video rounded-2xl overflow-hidden border border-zinc-800 bg-[#111114] relative shadow-[0_12px_40px_rgba(0,0,0,0.45)]">
                 {!heroImgFailed && settings.courseCoverUrl ? (
@@ -282,8 +226,8 @@ export default function LandingPage({
               <p className="mt-1 text-sm font-semibold text-white">Private Telegram Channel</p>
             </div>
             <div>
-              <p className="text-xs font-mono text-zinc-400 tabular-nums">04 · PAYMENT</p>
-              <p className="mt-1 text-sm font-semibold text-white">Verified UPI & UTR Desk</p>
+              <p className="text-xs font-mono text-zinc-400 tabular-nums">04 · ACCESS</p>
+              <p className="mt-1 text-sm font-semibold text-white">Unique Order Code Tracking</p>
             </div>
           </div>
         </div>
@@ -305,7 +249,6 @@ export default function LandingPage({
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Asymmetric 5-Card Benefits Grid */}
             <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
               {BENEFITS.map((item, idx) => (
                 <div
@@ -325,7 +268,6 @@ export default function LandingPage({
               ))}
             </div>
 
-            {/* Right Visual Anchor */}
             <div className="lg:col-span-5">
               <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-zinc-900 aspect-[4/3]">
                 {!toolsImgFailed ? (
@@ -403,33 +345,22 @@ export default function LandingPage({
               </div>
 
               <div>
-                {hasApprovedOrder ? (
-                  <button
-                    type="button"
-                    onClick={() => onNavigate('dashboard')}
-                    className="inline-flex items-center gap-2 px-7 py-3.5 text-sm font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 transition-all cursor-pointer"
-                  >
-                    <span>Open Approved Course Access</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={!settings.isAvailable}
-                    onClick={onBuyNow}
-                    className="inline-flex items-center gap-2 px-7 py-3.5 text-sm font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 disabled:opacity-50 transition-all cursor-pointer tabular-nums"
-                  >
-                    <span>Proceed to ₹{settings.coursePrice} Checkout</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  disabled={!settings.isAvailable}
+                  onClick={onBuyNow}
+                  className="inline-flex items-center gap-2 px-7 py-3.5 text-sm font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 disabled:opacity-50 transition-all cursor-pointer tabular-nums"
+                >
+                  <span>Proceed to ₹{settings.coursePrice} Checkout</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 4. ORDER TRACKING SECTION (Crisp White) */}
+      {/* 4. QUICK TRACK ACCESS SECTION (Crisp White - No Login Required) */}
       <section id="track-order" className="bg-white text-zinc-950 py-16 border-b border-zinc-200">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-8">
@@ -437,85 +368,35 @@ export default function LandingPage({
               Order Verification Status
             </p>
             <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-zinc-950">
-              Track your payment & course access
+              Already paid? Check status with your Unique Code
             </h2>
             <p className="text-sm text-zinc-600 mt-2">
-              Enter your unique Order ID to check whether your payment is pending, approved, or needs resubmission.
+              No login required. Enter the Unique Order Code (e.g., SUFI-8K29-XP51) you received after payment submission.
             </p>
           </div>
 
-          <form onSubmit={handleTrackSubmit} className="flex flex-col sm:flex-row gap-3">
+          <form onSubmit={handleQuickTrackSubmit} className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                value={trackInput}
-                onChange={(e) => setTrackInput(e.target.value)}
-                placeholder="Enter Order ID (e.g., ORD-20261114-X7K9M2)"
-                className="w-full pl-10 pr-4 py-3 text-sm font-mono bg-[#FAFAFA] border border-zinc-300 rounded-xl text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-[#9A7411]"
+                value={quickCode}
+                onChange={(e) => setQuickCode(e.target.value.toUpperCase())}
+                placeholder="Enter Unique Code (e.g., SUFI-8K29-XP51)"
+                className="w-full pl-10 pr-4 py-3 text-sm font-mono uppercase bg-[#FAFAFA] border border-zinc-300 rounded-xl text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-[#9A7411]"
               />
             </div>
             <button
               type="submit"
-              disabled={tracking}
-              className="px-6 py-3 text-sm font-semibold bg-zinc-950 text-white rounded-xl hover:bg-zinc-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-6 py-3 text-sm font-semibold bg-zinc-950 text-white rounded-xl hover:bg-zinc-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              {tracking ? 'Checking...' : user ? 'Track Order' : 'Sign In & Track'}
+              Check Status
             </button>
           </form>
-
-          {trackError && (
-            <div className="mt-4 p-4 rounded-xl border border-red-200 bg-red-50 text-sm text-red-700">
-              {trackError}
-            </div>
-          )}
-
-          {trackedOrder && (
-            <div className="mt-5 p-5 rounded-xl border border-zinc-200 bg-[#FAFAFA] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-3 text-xs text-zinc-500 font-mono tabular-nums">
-                  <span>{trackedOrder.orderId}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>UTR: {trackedOrder.utr}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>₹{trackedOrder.amount}</span>
-                </div>
-                <p className="text-sm font-semibold text-zinc-950">{trackedOrder.name}</p>
-                <div className="flex items-center gap-1.5 text-sm font-medium">
-                  {trackedOrder.status === 'APPROVED' && (
-                    <span className="inline-flex items-center gap-1.5 text-emerald-700">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Payment Approved · Course Access Ready
-                    </span>
-                  )}
-                  {trackedOrder.status === 'PENDING' && (
-                    <span className="inline-flex items-center gap-1.5 text-amber-700">
-                      <Clock className="w-4 h-4" />
-                      Payment Under Review
-                    </span>
-                  )}
-                  {trackedOrder.status === 'REJECTED' && (
-                    <span className="inline-flex items-center gap-1.5 text-red-700">
-                      <XCircle className="w-4 h-4" />
-                      Rejected: {trackedOrder.rejectionReason}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => onNavigate('dashboard')}
-                className="px-5 py-2.5 text-xs font-bold bg-[#D4AF37] text-[#09090B] rounded-lg hover:brightness-105 transition-all whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                {trackedOrder.status === 'APPROVED' ? 'VIEW NOW' : 'Open Dashboard'}
-              </button>
-            </div>
-          )}
         </div>
       </section>
 
-      {/* 5. FAQ SECTION (Soft Neutral Light) */}
+      {/* 5. FAQ SECTION */}
       <section id="faq" className="bg-[#F8F8FA] text-zinc-950 py-16 lg:py-20 border-b border-zinc-200">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <div className="mb-10">
@@ -589,15 +470,6 @@ export default function LandingPage({
             >
               Privacy Policy
             </button>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => onNavigate('admin')}
-                className="text-[#E5C158] hover:underline cursor-pointer"
-              >
-                Admin Console
-              </button>
-            )}
           </div>
 
           <button

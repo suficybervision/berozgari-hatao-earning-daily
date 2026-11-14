@@ -10,49 +10,34 @@ import {
   ShieldCheck,
   UploadCloud,
 } from 'lucide-react';
-import type { User } from 'firebase/auth';
 import type { AppView, CourseSettings } from '../types';
 import UpiQrCode from './UpiQrCode';
-import {
-  generateOrderId,
-  normalizeUtr,
-  submitPaymentOrder,
-  uploadPaymentScreenshot,
-} from '../services/courseService';
+import { normalizeUtr, submitOrderRequest } from '../services/courseService';
 
 interface CheckoutViewProps {
   settings: CourseSettings;
-  user: User | null;
-  onSignIn: () => Promise<User | void>;
   onNavigate: (view: AppView) => void;
+  onTrackCode: (code: string) => void;
   onNotify: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
 }
 
 export default function CheckoutView({
   settings,
-  user,
-  onSignIn,
   onNavigate,
+  onTrackCode,
   onNotify,
 }: CheckoutViewProps) {
-  const [fullName, setFullName] = useState(user?.displayName || '');
+  const [fullName, setFullName] = useState('');
   const [mobile, setMobile] = useState('');
-  const [email, setEmail] = useState(user?.email || '');
   const [utr, setUtr] = useState('');
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [copiedUpi, setCopiedUpi] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [confirmedOrderId, setConfirmedOrderId] = useState('');
-
-  useEffect(() => {
-    if (user) {
-      if (!fullName && user.displayName) setFullName(user.displayName);
-      if (!email && user.email) setEmail(user.email);
-    }
-  }, [user, fullName, email]);
+  const [generatedCode, setGeneratedCode] = useState('');
 
   useEffect(() => {
     return () => {
@@ -68,6 +53,18 @@ export default function CheckoutView({
       setTimeout(() => setCopiedUpi(false), 2000);
     } catch {
       onNotify('info', 'Copy UPI ID', `Please pay to: ${settings.upiId}`);
+    }
+  };
+
+  const handleCopyOrderCode = async () => {
+    if (!generatedCode) return;
+    try {
+      await navigator.clipboard.writeText(generatedCode);
+      setCopiedCode(true);
+      onNotify('success', 'Unique Code Copied', generatedCode);
+      setTimeout(() => setCopiedCode(false), 2500);
+    } catch {
+      onNotify('info', 'Save Your Code', generatedCode);
     }
   };
 
@@ -102,23 +99,18 @@ export default function CheckoutView({
 
     const cleanName = fullName.trim();
     const cleanMobile = mobile.trim();
-    const cleanEmail = email.trim();
     const cleanUtr = normalizeUtr(utr);
 
     if (cleanName.length < 2) {
       setErrorMsg('Please enter your full name.');
       return;
     }
-    if (!/^[0-9+\-\s]{10,15}$/.test(cleanMobile)) {
+    if (!/^[0-9+\-\s]{10,15}$/.test(cleanMobile) || cleanMobile.replace(/\D/g, '').length < 10) {
       setErrorMsg('Please enter a valid 10-digit mobile number.');
       return;
     }
-    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      setErrorMsg('Please enter a valid email address or leave it blank.');
-      return;
-    }
     if (cleanUtr.length < 6 || cleanUtr.length > 40) {
-      setErrorMsg('Please enter a valid UTR / Transaction Reference Number (6–40 letters/digits).');
+      setErrorMsg('Please enter a valid UTR / Transaction ID (6–40 letters/digits).');
       return;
     }
     if (!screenshotFile) {
@@ -126,39 +118,17 @@ export default function CheckoutView({
       return;
     }
 
-    let activeUser = user;
-    if (!activeUser) {
-      try {
-        const signedIn = await onSignIn();
-        if (signedIn) activeUser = signedIn;
-      } catch {
-        setErrorMsg('Google Sign-In is required to bind your order securely to your account.');
-        return;
-      }
-    }
-
-    if (!activeUser) {
-      setErrorMsg('Please sign in with Google before submitting your payment request.');
-      return;
-    }
-
     setSubmitting(true);
     try {
-      const orderId = generateOrderId();
-      const screenshotUrl = await uploadPaymentScreenshot(screenshotFile, activeUser, orderId);
-      await submitPaymentOrder({
-        user: activeUser,
-        orderId,
+      const result = await submitOrderRequest({
         name: cleanName,
         mobile: cleanMobile,
-        email: cleanEmail,
         utr: cleanUtr,
-        screenshotUrl,
-        amount: settings.coursePrice,
+        file: screenshotFile,
       });
 
-      setConfirmedOrderId(orderId);
-      onNotify('success', 'Payment Request Submitted', `Order ID: ${orderId}`);
+      setGeneratedCode(result.orderCode);
+      onNotify('success', 'Payment Request Submitted', `Code: ${result.orderCode}`);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Unable to submit payment request. Please try again.';
@@ -169,39 +139,50 @@ export default function CheckoutView({
     }
   };
 
-  if (confirmedOrderId) {
+  if (generatedCode) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] bg-[#09090B] text-white py-14 px-4">
-        <div className="max-w-xl mx-auto bg-[#111114] border border-zinc-800 rounded-2xl p-8 text-center">
+      <div className="min-h-[calc(100vh-4rem)] bg-[#09090B] text-white py-12 px-4">
+        <div className="max-w-xl mx-auto bg-[#111114] border border-zinc-800 rounded-2xl p-6 sm:p-8 text-center">
           <div className="w-14 h-14 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-5">
             <CheckCircle2 className="w-7 h-7 text-emerald-400" />
           </div>
 
-          <p className="text-xs font-mono text-[#E5C158] uppercase tracking-wider mb-2">
-            Verification Queued
-          </p>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold text-white mb-4">
-            Order Submitted Successfully
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-white leading-snug mb-6">
+            आपकी पेमेंट रिक्वेस्ट सफलतापूर्वक जमा हो गई है।
           </h1>
 
-          <div className="my-6 py-4 px-5 rounded-xl bg-zinc-950 border border-zinc-800 inline-block">
-            <p className="text-xs text-zinc-400 mb-1">Your Unique Order ID</p>
-            <p className="font-mono text-lg sm:text-xl font-bold text-[#E5C158] tabular-nums">
-              {confirmedOrderId}
+          {/* Prominent Unique Tracking Code + Copy Button */}
+          <div className="p-5 sm:p-6 rounded-2xl bg-zinc-950 border border-[#D4AF37]/50 mb-6">
+            <p className="text-xs font-medium text-zinc-400 mb-2">
+              Your Unique Order Tracking Code
             </p>
+            <p className="font-mono text-2xl sm:text-3xl font-extrabold tracking-wider text-[#E5C158] tabular-nums select-all mb-4">
+              {generatedCode}
+            </p>
+            <button
+              type="button"
+              onClick={handleCopyOrderCode}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 transition-all cursor-pointer"
+            >
+              {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedCode ? 'CODE COPIED!' : 'COPY CODE'}</span>
+            </button>
           </div>
 
-          <p className="text-base text-zinc-200 leading-relaxed bg-zinc-900/70 border border-zinc-800 rounded-xl p-5 mb-8">
-            आपका पेमेंट वेरिफिकेशन के लिए भेज दिया गया है। अप्रूवल मिलने के बाद आपको कोर्स का एक्सेस मिल जाएगा।
-          </p>
+          {/* Mandatory Hindi Warning Notice */}
+          <div className="text-left bg-amber-500/10 border border-amber-500/30 rounded-xl p-5 mb-8">
+            <p className="text-sm sm:text-base text-amber-100 leading-relaxed font-medium">
+              ⚠️ जरूरी सूचना: कृपया इस Unique Code को किसी अच्छी और सुरक्षित जगह पर नोट करके रख लें। अपने पेमेंट का Status चेक करने और कोर्स का Access पाने के लिए आपको इसी Code की जरूरत होगी। इसे खोएं नहीं।
+            </p>
+          </div>
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
               type="button"
-              onClick={() => onNavigate('dashboard')}
-              className="px-7 py-3.5 text-sm font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 transition-all cursor-pointer"
+              onClick={() => onTrackCode(generatedCode)}
+              className="px-7 py-3.5 text-sm font-bold text-[#09090B] bg-white rounded-xl hover:bg-zinc-200 transition-colors cursor-pointer"
             >
-              Go to My Dashboard
+              Track Order Status Now
             </button>
             <button
               type="button"
@@ -256,7 +237,6 @@ export default function CheckoutView({
               />
             </div>
 
-            {/* Admin-Configured UPI ID */}
             <div className="mb-5">
               <label className="block text-xs text-zinc-400 mb-1.5">Official UPI ID</label>
               <div className="flex items-center justify-between gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2.5">
@@ -281,39 +261,24 @@ export default function CheckoutView({
             </a>
 
             <div className="pt-5 border-t border-zinc-800 space-y-2 text-xs text-zinc-400 leading-relaxed">
-              <p className="font-semibold text-zinc-200">Payment Instructions:</p>
+              <p className="font-semibold text-zinc-200">
+                ₹{settings.coursePrice} Payment Instructions:
+              </p>
               <p>1. Scan the QR code or pay ₹{settings.coursePrice} to the UPI ID above.</p>
-              <p>2. Copy the 12-digit UTR / UPI Reference Number from your payment receipt.</p>
-              <p>3. Upload the payment screenshot and submit the verification form.</p>
+              <p>2. Copy the 12-digit UTR / Transaction ID from your payment receipt.</p>
+              <p>3. Submit your details & screenshot to get your Unique Order Tracking Code.</p>
             </div>
           </div>
 
-          {/* Right Column: Customer Details & Proof Form */}
+          {/* Right Column: No-Login Payment Proof Form */}
           <div className="lg:col-span-7 bg-white rounded-2xl p-6 sm:p-8 border border-zinc-200">
-            <div className="flex flex-wrap items-center justify-between gap-3 pb-5 mb-6 border-b border-zinc-200">
-              <div>
-                <p className="text-xs font-semibold text-[#9A7411] mb-1">
-                  Step 2 · Submit Verification Proof
-                </p>
-                <h2 className="font-display text-xl font-bold text-zinc-950">
-                  Complete Payment Details
-                </h2>
-              </div>
-
-              {!user ? (
-                <button
-                  type="button"
-                  onClick={() => onSignIn()}
-                  className="px-4 py-2 text-xs font-semibold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
-                >
-                  Sign in with Google
-                </button>
-              ) : (
-                <div className="text-xs text-zinc-500 text-right">
-                  <p className="font-semibold text-zinc-800">{user.displayName || 'Verified Account'}</p>
-                  <p>{user.email}</p>
-                </div>
-              )}
+            <div className="pb-5 mb-6 border-b border-zinc-200">
+              <p className="text-xs font-semibold text-[#9A7411] mb-1">
+                Step 2 · Submit Verification Proof (No Login Required)
+              </p>
+              <h2 className="font-display text-xl font-bold text-zinc-950">
+                Complete Payment Details
+              </h2>
             </div>
 
             {!settings.isAvailable && (
@@ -355,35 +320,19 @@ export default function CheckoutView({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="checkout-email" className="block text-xs font-semibold text-zinc-700 mb-1.5">
-                    Email Address (Optional)
-                  </label>
-                  <input
-                    id="checkout-email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="w-full px-3.5 py-2.5 text-sm bg-[#FAFAFA] border border-zinc-300 rounded-xl focus:outline-none focus:border-[#9A7411]"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="checkout-utr" className="block text-xs font-semibold text-zinc-700 mb-1.5">
-                    UTR / Transaction Reference Number *
-                  </label>
-                  <input
-                    id="checkout-utr"
-                    type="text"
-                    required
-                    value={utr}
-                    onChange={(e) => setUtr(e.target.value.toUpperCase())}
-                    placeholder="e.g., 431890271124"
-                    className="w-full px-3.5 py-2.5 text-sm font-mono uppercase bg-[#FAFAFA] border border-zinc-300 rounded-xl focus:outline-none focus:border-[#9A7411]"
-                  />
-                </div>
+              <div>
+                <label htmlFor="checkout-utr" className="block text-xs font-semibold text-zinc-700 mb-1.5">
+                  UTR / Transaction ID *
+                </label>
+                <input
+                  id="checkout-utr"
+                  type="text"
+                  required
+                  value={utr}
+                  onChange={(e) => setUtr(e.target.value.toUpperCase())}
+                  placeholder="e.g., 431890271124"
+                  className="w-full px-3.5 py-2.5 text-sm font-mono uppercase bg-[#FAFAFA] border border-zinc-300 rounded-xl focus:outline-none focus:border-[#9A7411]"
+                />
               </div>
 
               {/* Payment Screenshot Upload */}
@@ -446,9 +395,7 @@ export default function CheckoutView({
                       <span>Submitting Payment Request...</span>
                     </>
                   ) : (
-                    <span>
-                      {user ? 'SUBMIT PAYMENT REQUEST' : 'SIGN IN WITH GOOGLE & SUBMIT PAYMENT REQUEST'}
-                    </span>
+                    <span>SUBMIT PAYMENT REQUEST</span>
                   )}
                 </button>
               </div>

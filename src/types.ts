@@ -1,6 +1,6 @@
 export type OrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
-export type AppView = 'home' | 'checkout' | 'dashboard' | 'admin';
+export type AppView = 'home' | 'checkout' | 'track' | 'admin';
 
 export interface CourseSettings {
   courseName: string;
@@ -16,11 +16,9 @@ export interface CourseSettings {
 }
 
 export interface OrderRecord {
-  orderId: string;
-  userId: string;
+  orderCode: string;
   name: string;
   mobile: string;
-  email: string;
   utr: string;
   screenshotUrl: string;
   amount: number;
@@ -30,6 +28,16 @@ export interface OrderRecord {
   createdAt: Date | null;
   approvedAt: Date | null;
   updatedAt: Date | null;
+}
+
+export interface TrackingResult {
+  orderCode: string;
+  status: OrderStatus;
+  rejectionReason: string;
+  amount: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+  accessClaimed: boolean;
 }
 
 export interface ToastNotice {
