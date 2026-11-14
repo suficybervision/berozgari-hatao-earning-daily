@@ -6,7 +6,7 @@
 3. **No Self-Approval on Submission**: Creating `/orders/{orderCode}` and `/order_tracking/{orderCode}` enforces `status == 'PENDING'`, `adminId == ''`, `approvedAt == null`, and `rejectionReason == ''`.
 4. **Atomic Cross-Collection Integrity**: Creating `/orders/{orderCode}` requires atomic creation of BOTH `/order_tracking/{orderCode}` and `/utr_locks/{utr}` in the same transaction/batch (`existsAfter`). When falling back to database screenshot storage, `/order_screenshots/{orderCode}` is created atomically alongside `/orders/{orderCode}` (`existsAfter`), restricted to admin-only `get`, and locked against `list`, `update`, and `delete`.
 5. **One-Time Telegram Access Grant**: `/access_grants/{orderCode}` can only be created once per `orderCode` and ONLY if `/order_tracking/{orderCode}` has `status == 'APPROVED'`. Updates are forbidden (`false`).
-6. **Verified Admin Email Enforcement**: All admin actions verify `request.auth.token.email_verified == true` alongside either the bootstrapped admin email or `/admins/{uid}`. Admin-uploaded course assets in `/course_assets/{assetId}` are public `get` only and admin-write only.
+6. **Verified Admin Email Enforcement**: All admin actions verify `request.auth.token.email_verified == true` alongside either the bootstrapped admin email or `/admins/{uid}`. Admin-uploaded course assets in `/course_assets/{assetId}` are public `get` only and admin-write only. Channel configuration in `/telegram_settings/channel` enforces `^-100[0-9]{5,20}$` format and admin-only writes (never stores bot secrets).
 
 ## 2. Adversarial Payloads (Must Return PERMISSION_DENIED)
 1. **Unauthenticated Order PII Read**: `GET /orders/SUFI-8K29-XP51` or `GET /order_screenshots/SUFI-8K29-XP51` with `auth == null`.

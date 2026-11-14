@@ -117,6 +117,17 @@
         "grantedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["orderCode", "grantedAt"]
+    },
+    "TelegramSettings": {
+      "title": "TelegramSettings",
+      "description": "Admin-configured Telegram channel ID for generating single-use course invites",
+      "type": "object",
+      "properties": {
+        "channelId": { "type": "string", "minLength": 6, "maxLength": 24, "pattern": "^-100[0-9]{5,20}$" },
+        "chatTitle": { "type": "string", "maxLength": 150 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["channelId", "chatTitle", "updatedAt"]
     }
   },
   "firestore": {
@@ -127,6 +138,10 @@
     "/settings/{settingId}": {
       "schema": { "$ref": "#/entities/CourseSettings" },
       "description": "Course pricing, title, description, cover, and UPI configuration"
+    },
+    "/telegram_settings/{configId}": {
+      "schema": { "$ref": "#/entities/TelegramSettings" },
+      "description": "Admin-managed private Telegram channel ID configuration"
     },
     "/orders/{orderCode}": {
       "schema": { "$ref": "#/entities/Order" },

@@ -143,6 +143,14 @@ service cloud.firestore {
         && data.grantedAt is timestamp;
     }
 
+    function isValidTelegramSettings(data) {
+      return data.keys().hasAll(['channelId', 'chatTitle', 'updatedAt'])
+        && data.keys().hasOnly(['channelId', 'chatTitle', 'updatedAt'])
+        && data.channelId is string && data.channelId.size() >= 6 && data.channelId.size() <= 24 && data.channelId.matches('^-100[0-9]{5,20}$')
+        && data.chatTitle is string && data.chatTitle.size() <= 150
+        && data.updatedAt is timestamp;
+    }
+
     // 4. Collection Rules
     match /admins/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
@@ -169,6 +177,20 @@ service cloud.firestore {
       allow update: if isAdmin()
         && settingId == 'course'
         && isValidCourseSettings(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /telegram_settings/{configId} {
+      allow get: if configId == 'channel';
+      allow list: if false;
+      allow create: if isAdmin()
+        && configId == 'channel'
+        && isValidTelegramSettings(incoming())
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && configId == 'channel'
+        && isValidTelegramSettings(incoming())
         && incoming().updatedAt == request.time;
       allow delete: if false;
     }

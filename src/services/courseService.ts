@@ -16,6 +16,7 @@ import { signInWithPopup, signOut, type User } from 'firebase/auth';
 import { auth, db, googleProvider, handleFirestoreError, OperationType, storage } from '../firebase';
 import type {
   CourseSettings,
+  DetectedTelegramChannel,
   OrderRecord,
   OrderStatus,
   TelegramConfigStatus,
@@ -473,6 +474,18 @@ export async function fetchAdminTelegramStatus(user: User): Promise<TelegramConf
   return safeFetchJson<TelegramConfigStatus>('/api/admin/telegram-status', {
     headers: { Authorization: `Bearer ${idToken}` },
   });
+}
+
+export async function detectAdminTelegramChannels(
+  user: User
+): Promise<{ botUsername: string; channels: DetectedTelegramChannel[] }> {
+  const idToken = await user.getIdToken();
+  return safeFetchJson<{ botUsername: string; channels: DetectedTelegramChannel[] }>(
+    '/api/admin/telegram-detect',
+    {
+      headers: { Authorization: `Bearer ${idToken}` },
+    }
+  );
 }
 
 export async function saveAdminTelegramChannel(

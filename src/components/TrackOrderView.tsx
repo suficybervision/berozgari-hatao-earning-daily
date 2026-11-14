@@ -93,10 +93,18 @@ export default function TrackOrderView({
       setResult((prev) => (prev ? { ...prev, accessClaimed: true } : prev));
       onNotify(
         'success',
-        'Telegram Invite Link Ready',
-        'Single-use private invite generated.'
+        'Telegram Channel Link Ready',
+        'Redirecting to private Telegram course channel...'
       );
-      window.location.href = res.inviteLink;
+      try {
+        if (window.top && window.top !== window) {
+          window.top.location.href = res.inviteLink;
+        } else {
+          window.location.assign(res.inviteLink);
+        }
+      } catch {
+        window.location.assign(res.inviteLink);
+      }
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : 'Unable to generate Telegram invite link.';
@@ -287,6 +295,8 @@ export default function TrackOrderView({
                       </p>
                       <a
                         href={inviteUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="w-full py-3.5 px-6 inline-flex items-center justify-center gap-2 text-sm font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 transition-all"
                       >
                         <span>Open Telegram Channel</span>

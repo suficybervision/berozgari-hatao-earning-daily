@@ -17,9 +17,16 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import type { CourseSettings, OrderRecord, OrderStatus, TelegramConfigStatus } from '../types';
+import type {
+  CourseSettings,
+  DetectedTelegramChannel,
+  OrderRecord,
+  OrderStatus,
+  TelegramConfigStatus,
+} from '../types';
 import {
   approveOrder,
+  detectAdminTelegramChannels,
   fetchAdminTelegramStatus,
   rejectOrder,
   resetTelegramAccessGrant,
@@ -77,6 +84,8 @@ export default function AdminDashboard({
   const [tgStatus, setTgStatus] = useState<TelegramConfigStatus | null>(null);
   const [channelIdInput, setChannelIdInput] = useState('');
   const [savingTelegram, setSavingTelegram] = useState(false);
+  const [detectingChannels, setDetectingChannels] = useState(false);
+  const [detectedChannels, setDetectedChannels] = useState<DetectedTelegramChannel[]>([]);
 
   useEffect(() => {
     setFormSettings(settings);
@@ -314,6 +323,35 @@ export default function AdminDashboard({
       );
     } finally {
       setSavingTelegram(false);
+    }
+  };
+
+  const handleDetectChannels = async () => {
+    setDetectingChannels(true);
+    try {
+      const res = await detectAdminTelegramChannels(user);
+      setDetectedChannels(res.channels);
+      if (res.channels.length === 0) {
+        onNotify(
+          'info',
+          'No Channels Detected Yet',
+          `Add @${res.botUsername || 'SufiyanAcademyAccessBot'} as Admin to your Telegram Channel and post 1 test message in the channel, then click Auto-Detect again.`
+        );
+      } else {
+        onNotify(
+          'success',
+          `${res.channels.length} Channel(s) Found`,
+          'Select your course channel below and click Verify & Save.'
+        );
+      }
+    } catch (err) {
+      onNotify(
+        'error',
+        'Auto-Detect Failed',
+        err instanceof Error ? err.message : 'Unable to query Telegram bot updates.'
+      );
+    } finally {
+      setDetectingChannels(false);
     }
   };
 
@@ -791,13 +829,16 @@ export default function AdminDashboard({
 
               <div className="space-y-3 text-xs">
                 <div className="flex items-center justify-between py-2.5 px-3.5 rounded-xl bg-zinc-900 border border-zinc-800">
-                  <span className="text-zinc-400">TELEGRAM_BOT_TOKEN (Server Secret)</span>
+                  <span className="text-zinc-400">
+                    TELEGRAM_BOT_TOKEN{' '}
+                    {tgStatus?.botUsername ? `(@${tgStatus.botUsername})` : ''}
+                  </span>
                   <span
                     className={`font-semibold ${
                       tgStatus?.botTokenConfigured ? 'text-emerald-400' : 'text-amber-400'
                     }`}
                   >
-                    {tgStatus?.botTokenConfigured ? 'Configured' : 'Missing in Env'}
+                    {tgStatus?.botTokenConfigured ? 'Connected' : 'Missing in Server Env'}
                   </span>
                 </div>
 
@@ -808,15 +849,55 @@ export default function AdminDashboard({
                       tgStatus?.channelIdConfigured ? 'text-emerald-400' : 'text-amber-400'
                     }`}
                   >
-                    {tgStatus?.channelIdConfigured ? tgStatus.channelIdMasked : 'Not Set'}
+                    {tgStatus?.channelIdConfigured
+                      ? `${tgStatus.chatTitle ? `${tgStatus.chatTitle} · ` : ''}${tgStatus.channelIdMasked}`
+                      : 'Not Set'}
                   </span>
                 </div>
+              </div>
+
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  disabled={detectingChannels || !tgStatus?.botTokenConfigured}
+                  onClick={handleDetectChannels}
+                  className="w-full py-2.5 px-4 text-xs font-semibold text-[#E5C158] border border-[#D4AF37]/40 rounded-xl hover:bg-[#D4AF37]/10 disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  {detectingChannels ? 'Scanning Bot Channels...' : 'Auto-Detect My Channel ID'}
+                </button>
+
+                {detectedChannels.length > 0 && (
+                  <div className="space-y-1.5">
+                    {detectedChannels.map((ch) => (
+                      <button
+                        key={ch.id}
+                        type="button"
+                        onClick={() => setChannelIdInput(ch.id)}
+                        className="w-full text-left px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-[#D4AF37] transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-white truncate">
+                            {ch.title}
+                          </span>
+                          <span
+                            className={`text-[10px] font-semibold ${
+                              ch.botIsAdmin ? 'text-emerald-400' : 'text-amber-400'
+                            }`}
+                          >
+                            {ch.botIsAdmin ? 'Bot Admin OK' : 'Make Bot Admin'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-mono text-zinc-400 mt-0.5">{ch.id}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <form onSubmit={handleSaveTelegram} className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    Private Telegram Channel ID (Numeric Chat ID)
+                    Private Telegram Channel ID (starts with -100)
                   </label>
                   <input
                     type="text"
@@ -839,9 +920,23 @@ export default function AdminDashboard({
 
               <div className="pt-4 border-t border-zinc-800 text-xs text-zinc-400 space-y-2 leading-relaxed">
                 <p className="font-semibold text-zinc-200">Setup Checklist:</p>
-                <p>1. Set <code className="text-zinc-200">TELEGRAM_BOT_TOKEN</code> in server environment secrets.</p>
-                <p>2. Make the bot an <strong>Administrator</strong> in your private Telegram channel with <em>Invite Users via Link</em> permission.</p>
-                <p>3. Enter the numeric channel ID (starts with <code className="text-zinc-200">-100</code>) above. Each approved Unique Code generates a single-use <code className="text-zinc-200">member_limit=1</code> link once.</p>
+                <p>
+                  1. Add{' '}
+                  <code className="text-[#E5C158]">
+                    @{tgStatus?.botUsername || 'SufiyanAcademyAccessBot'}
+                  </code>{' '}
+                  as an <strong>Administrator</strong> in your private Telegram Course Channel with{' '}
+                  <em>Invite Users via Link</em> permission.
+                </p>
+                <p>
+                  2. Post 1 message in that channel and click{' '}
+                  <strong>Auto-Detect My Channel ID</strong> above (or paste your{' '}
+                  <code className="text-zinc-200">-100...</code> Channel ID). Personal user IDs like{' '}
+                  <code className="text-zinc-200">8851455020</code> do not support channel invites.
+                </p>
+                <p>
+                  3. Once saved, clicking <strong>VIEW NOW</strong> redirects approved customers directly into your Telegram channel with a 1-time invite link.
+                </p>
               </div>
             </div>
           </div>

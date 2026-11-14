@@ -49,7 +49,17 @@ export interface ToastNotice {
 
 export interface TelegramConfigStatus {
   botTokenConfigured: boolean;
+  botUsername?: string;
   channelIdConfigured: boolean;
   channelIdMasked: string;
   channelIdValue?: string;
+  chatTitle?: string;
+}
+
+export interface DetectedTelegramChannel {
+  id: string;
+  title: string;
+  type: string;
+  username?: string;
+  botIsAdmin: boolean;
 }

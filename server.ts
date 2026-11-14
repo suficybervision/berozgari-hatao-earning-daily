@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   handleAdminResetAccessGrant,
   handleAdminTelegramConfig,
+  handleAdminTelegramDetect,
   handleAdminTelegramStatus,
   handleGetCourseAsset,
   handleGetScreenshot,
@@ -58,6 +59,7 @@ async function startServer() {
     void handleLegacyLocalUpload(req, res, req.params.filename)
   );
   app.all('/api/admin/telegram-status', (req, res) => void handleAdminTelegramStatus(req, res));
+  app.all('/api/admin/telegram-detect', (req, res) => void handleAdminTelegramDetect(req, res));
   app.all('/api/admin/telegram-config', (req, res) => void handleAdminTelegramConfig(req, res));
   app.all('/api/admin/reset-access-grant', (req, res) =>
     void handleAdminResetAccessGrant(req, res)

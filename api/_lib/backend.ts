@@ -204,9 +204,24 @@ function tryRemoveLocalAccessGrant(orderCode: string): void {
   }
 }
 
-function getEffectiveChannelId(): string {
+async function getEffectiveChannelId(fbConfig: FirebaseAppletConfig): Promise<string> {
+  try {
+    const baseUrl = getFirestoreBaseUrl(fbConfig);
+    const res = await fetch(
+      `${baseUrl}/telegram_settings/channel?key=${encodeURIComponent(fbConfig.apiKey)}`
+    );
+    if (res.ok) {
+      const doc = (await res.json()) as {
+        fields?: { channelId?: { stringValue?: string } };
+      };
+      const fsChannelId = (doc.fields?.channelId?.stringValue || '').trim();
+      if (/^-100\d{5,20}$/.test(fsChannelId)) return fsChannelId;
+    }
+  } catch {
+    // Fall back to env/local config
+  }
   const envVal = (process.env.TELEGRAM_CHANNEL_ID || '').trim();
-  if (envVal) return envVal;
+  if (/^-100\d{5,20}$/.test(envVal)) return envVal;
   const stored = getStoredTelegramConfig();
   return stored?.channelId?.trim() || '';
 }
@@ -831,11 +846,11 @@ export async function handleTelegramInvite(
 
     // Step 3: Verify Telegram Bot configuration on server
     const botToken = getEffectiveBotToken();
-    const channelId = getEffectiveChannelId();
+    const channelId = await getEffectiveChannelId(fbConfig);
     if (!botToken || !channelId) {
       throw new HttpError(
         503,
-        'Telegram Bot integration is not yet configured on the server. Administrator must set TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID in server environment secrets.',
+        'Telegram Bot integration is not yet configured. Administrator must connect the Private Channel (-100...) in /admin and ensure TELEGRAM_BOT_TOKEN is set on the server.',
         'TELEGRAM_NOT_CONFIGURED'
       );
     }
@@ -1088,8 +1103,9 @@ export async function handleAdminTelegramStatus(
     if (!requireMethod(req, res, 'GET')) return;
     await requireAdminAuth(req);
 
+    const fbConfig = getFirebaseConfig();
     const botToken = getEffectiveBotToken();
-    const channelId = getEffectiveChannelId();
+    const channelId = await getEffectiveChannelId(fbConfig);
     const maskedChannelId =
       channelId.length > 6
         ? `${channelId.slice(0, 5)}••••${channelId.slice(-3)}`
@@ -1097,14 +1113,146 @@ export async function handleAdminTelegramStatus(
           ? 'Configured'
           : '';
 
+    let botUsername = '';
+    let chatTitle = '';
+    if (botToken) {
+      try {
+        const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+        const meData = (await meRes.json()) as {
+          ok: boolean;
+          result?: { username?: string };
+        };
+        if (meData.ok && meData.result?.username) {
+          botUsername = meData.result.username;
+        }
+      } catch {
+        // Non-blocking
+      }
+      if (channelId) {
+        try {
+          const cRes = await fetch(
+            `https://api.telegram.org/bot${botToken}/getChat?chat_id=${encodeURIComponent(channelId)}`
+          );
+          const cData = (await cRes.json()) as {
+            ok: boolean;
+            result?: { title?: string };
+          };
+          if (cData.ok && cData.result?.title) {
+            chatTitle = cData.result.title;
+          }
+        } catch {
+          // Non-blocking
+        }
+      }
+    }
+
     sendJson(res, 200, {
       botTokenConfigured: Boolean(botToken),
+      botUsername,
       channelIdConfigured: Boolean(channelId),
       channelIdMasked: maskedChannelId,
       channelIdValue: channelId,
+      chatTitle,
     });
   } catch (err) {
     handleError(res, err, 'Failed to load Telegram status.');
+  }
+}
+
+export async function handleAdminTelegramDetect(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  try {
+    if (!requireMethod(req, res, 'GET')) return;
+    await requireAdminAuth(req);
+
+    const botToken = getEffectiveBotToken();
+    if (!botToken) {
+      throw new HttpError(
+        503,
+        'TELEGRAM_BOT_TOKEN is not configured on the server yet.'
+      );
+    }
+
+    const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const meData = (await meRes.json()) as {
+      ok: boolean;
+      result?: { id?: number; username?: string };
+    };
+    const botUsername = meData.result?.username || '';
+    const botId = meData.result?.id;
+
+    const updatesRes = await fetch(
+      `https://api.telegram.org/bot${botToken}/getUpdates?allowed_updates=${encodeURIComponent(
+        JSON.stringify(['my_chat_member', 'channel_post', 'message'])
+      )}`
+    );
+    const updatesData = (await updatesRes.json()) as {
+      ok: boolean;
+      result?: Array<{
+        my_chat_member?: { chat?: { id: number; title?: string; type?: string; username?: string } };
+        channel_post?: { chat?: { id: number; title?: string; type?: string; username?: string } };
+        message?: {
+          chat?: { id: number; title?: string; type?: string; username?: string };
+          forward_origin?: { chat?: { id: number; title?: string; type?: string; username?: string } };
+        };
+      }>;
+    };
+
+    const found = new Map<string, { id: string; title: string; type: string; username?: string; botIsAdmin: boolean }>();
+
+    if (updatesData.ok && Array.isArray(updatesData.result)) {
+      for (const upd of updatesData.result) {
+        const candidates = [
+          upd.my_chat_member?.chat,
+          upd.channel_post?.chat,
+          upd.message?.chat,
+          upd.message?.forward_origin?.chat,
+        ];
+        for (const ch of candidates) {
+          if (!ch || (ch.type !== 'channel' && ch.type !== 'supergroup')) continue;
+          const idStr = String(ch.id);
+          if (!found.has(idStr)) {
+            let botIsAdmin = false;
+            if (botId) {
+              try {
+                const memRes = await fetch(
+                  `https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${encodeURIComponent(
+                    idStr
+                  )}&user_id=${botId}`
+                );
+                const memData = (await memRes.json()) as {
+                  ok: boolean;
+                  result?: { status?: string; can_invite_users?: boolean };
+                };
+                botIsAdmin = Boolean(
+                  memData.ok &&
+                    memData.result?.status === 'administrator' &&
+                    memData.result?.can_invite_users !== false
+                );
+              } catch {
+                // Ignore
+              }
+            }
+            found.set(idStr, {
+              id: idStr,
+              title: ch.title || 'Private Channel',
+              type: ch.type,
+              username: ch.username,
+              botIsAdmin,
+            });
+          }
+        }
+      }
+    }
+
+    sendJson(res, 200, {
+      botUsername,
+      channels: Array.from(found.values()),
+    });
+  } catch (err) {
+    handleError(res, err, 'Failed to detect Telegram channels.');
   }
 }
 
@@ -1114,20 +1262,35 @@ export async function handleAdminTelegramConfig(
 ): Promise<void> {
   try {
     if (!requireMethod(req, res, 'POST')) return;
-    const { user } = await requireAdminAuth(req);
+    const { user, idToken } = await requireAdminAuth(req);
 
     const body = await readJsonBody<{ channelId?: string }>(req);
     const trimmed = String(body.channelId || '').trim();
     if (!trimmed || !/^-?\d{5,20}$/.test(trimmed)) {
       throw new HttpError(
         400,
-        'Please enter a valid numeric Telegram Channel ID (e.g., -1001234567890).'
+        'Please enter a valid numeric Telegram Channel ID starting with -100 (e.g., -1001234567890).'
+      );
+    }
+
+    if (!trimmed.startsWith('-100')) {
+      throw new HttpError(
+        400,
+        `यह ID (${trimmed}) एक Personal Account / Chat की है, Private Channel की नहीं। Telegram Channel ID हमेशा -100 से शुरू होती है (जैसे -1001234567890)।`
       );
     }
 
     const botToken = getEffectiveBotToken();
     let chatTitle = '';
     if (botToken) {
+      const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+      const meData = (await meRes.json()) as {
+        ok: boolean;
+        result?: { id?: number; username?: string };
+      };
+      const botId = meData.result?.id;
+      const botName = meData.result?.username ? `@${meData.result.username}` : 'your bot';
+
       const tgRes = await fetch(
         `https://api.telegram.org/bot${botToken}/getChat?chat_id=${encodeURIComponent(trimmed)}`
       );
@@ -1140,25 +1303,80 @@ export async function handleAdminTelegramConfig(
         throw new HttpError(
           400,
           `Telegram verification failed: ${
-            tgData.description || 'Make sure the bot is an administrator in this channel.'
+            tgData.description || `Make sure ${botName} is an Administrator in this channel.`
           }`
         );
       }
-      chatTitle = tgData.result?.title || '';
+      if (tgData.result?.type !== 'channel' && tgData.result?.type !== 'supergroup') {
+        throw new HttpError(
+          400,
+          `This ID belongs to a "${tgData.result?.type || 'private'}" chat, not a Channel or Supergroup. Please enter your Course Channel ID (-100...).`
+        );
+      }
+      chatTitle = tgData.result?.title || 'Private Course Channel';
+
+      if (botId) {
+        const memRes = await fetch(
+          `https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${encodeURIComponent(
+            trimmed
+          )}&user_id=${botId}`
+        );
+        const memData = (await memRes.json()) as {
+          ok: boolean;
+          result?: { status?: string; can_invite_users?: boolean };
+        };
+        if (!memData.ok || memData.result?.status !== 'administrator') {
+          throw new HttpError(
+            400,
+            `Channel "${chatTitle}" मिल गया, लेकिन ${botName} अभी इसका Administrator नहीं है। कृपया Telegram में चैनल खोलकर ${botName} को Admin बनाएं और "Invite Users via Link" ऑन करें।`
+          );
+        }
+        if (memData.result?.can_invite_users === false) {
+          throw new HttpError(
+            400,
+            `${botName} को "${chatTitle}" में "Invite Users via Link" की अनुमति नहीं मिली है। कृपया Telegram Channel Admins में इसे ऑन करें।`
+          );
+        }
+      }
     }
 
-    const persistedLocally = trySaveStoredTelegramConfig({
+    // Save persistently in Firestore /telegram_settings/channel (works across Vercel serverless cold starts)
+    const fbConfig = getFirebaseConfig();
+    const baseUrl = getFirestoreBaseUrl(fbConfig);
+    const docRoot = getDocRoot(fbConfig);
+    const commitRes = await fetch(`${baseUrl}:commit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        writes: [
+          {
+            update: {
+              name: `${docRoot}/telegram_settings/channel`,
+              fields: {
+                channelId: { stringValue: trimmed },
+                chatTitle: { stringValue: chatTitle.slice(0, 150) },
+              },
+            },
+            updateTransforms: [{ fieldPath: 'updatedAt', setToServerValue: 'REQUEST_TIME' }],
+          },
+        ],
+      }),
+    });
+
+    if (!commitRes.ok) {
+      const errTxt = await commitRes.text();
+      console.error('Failed saving telegram_settings/channel:', commitRes.status, errTxt);
+      throw new HttpError(500, 'Failed to save Telegram Channel ID to database.');
+    }
+
+    trySaveStoredTelegramConfig({
       channelId: trimmed,
       updatedAt: new Date().toISOString(),
       updatedBy: user.email || user.uid,
     });
-
-    if (!persistedLocally && process.env.TELEGRAM_CHANNEL_ID !== trimmed) {
-      throw new HttpError(
-        400,
-        `Channel verified${chatTitle ? ` ("${chatTitle}")` : ''}, but on Vercel serverless hosting please set TELEGRAM_CHANNEL_ID=${trimmed} in Vercel Environment Variables and redeploy.`
-      );
-    }
 
     sendJson(res, 200, {
       saved: true,
