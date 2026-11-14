@@ -90,11 +90,10 @@ export default function TrackOrderView({
     try {
       const res = await requestTelegramInviteByCode(result.orderCode);
       setInviteUrl(res.inviteLink);
-      setResult((prev) => (prev ? { ...prev, accessClaimed: true } : prev));
       onNotify(
         'success',
-        'Telegram Channel Link Ready',
-        'Redirecting to private Telegram course channel...'
+        'Opening Telegram Channel',
+        'Redirecting to the course Telegram channel...'
       );
       try {
         if (window.top && window.top !== window) {
@@ -107,7 +106,7 @@ export default function TrackOrderView({
       }
     } catch (err) {
       const msg =
-        err instanceof Error ? err.message : 'Unable to generate Telegram invite link.';
+        err instanceof Error ? err.message : 'Unable to open Telegram channel link.';
       setInviteError(msg);
       onNotify('error', 'Telegram Access Error', msg);
     } finally {
@@ -247,37 +246,29 @@ export default function TrackOrderView({
                     </div>
                   </div>
 
-                  {!inviteUrl && !result.accessClaimed && (
-                    <div className="space-y-3">
-                      <button
-                        type="button"
-                        disabled={generatingInvite}
-                        onClick={handleViewNow}
-                        className="w-full py-4 px-8 inline-flex items-center justify-center gap-3 text-base font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] via-[#F3D578] to-[#D4AF37] rounded-xl shadow-[0_8px_24px_rgba(212,175,55,0.28)] hover:brightness-105 disabled:opacity-60 transition-all cursor-pointer"
-                      >
-                        {generatingInvite ? (
-                          <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            <span>Generating Private Telegram Link...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-5 h-5" />
-                            <span>VIEW NOW</span>
-                          </>
-                        )}
-                      </button>
-                      <p className="text-xs text-zinc-500 text-center">
-                        Generates a single-use private Telegram channel invite link (valid for 1 join).
-                      </p>
-                    </div>
-                  )}
-
-                  {result.accessClaimed && !inviteUrl && (
-                    <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">
-                      इस Unique Code के लिए Single-Use Telegram Invite Link पहले ही जनरेट किया जा चुका है। यदि लिंक एक्सपायर हो गया हो तो कृपया WhatsApp Support से संपर्क करें।
-                    </div>
-                  )}
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      disabled={generatingInvite}
+                      onClick={handleViewNow}
+                      className="w-full py-4 px-8 inline-flex items-center justify-center gap-3 text-base font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] via-[#F3D578] to-[#D4AF37] rounded-xl shadow-[0_8px_24px_rgba(212,175,55,0.28)] hover:brightness-105 disabled:opacity-60 transition-all cursor-pointer"
+                    >
+                      {generatingInvite ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span>Opening Telegram Channel...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-5 h-5" />
+                          <span>VIEW NOW</span>
+                        </>
+                      )}
+                    </button>
+                    <p className="text-xs text-zinc-500 text-center">
+                      कोर्स देखने के लिए VIEW NOW दबाएं — सीधे Telegram चैनल खुलेगा।
+                    </p>
+                  </div>
 
                   {inviteError && (
                     <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-sm text-red-800">
@@ -288,10 +279,10 @@ export default function TrackOrderView({
                   {inviteUrl && (
                     <div className="p-5 rounded-xl bg-zinc-950 text-white space-y-3">
                       <p className="text-sm font-bold text-[#E5C158]">
-                        Your Private Single-Use Telegram Link is Ready
+                        Telegram Channel Link Ready
                       </p>
                       <p className="text-xs text-zinc-400">
-                        Member Limit: 1 · Expires in 5 minutes. Tap the button below to join Telegram immediately.
+                        यदि ऑटो-रीडायरेक्ट नहीं हुआ हो तो नीचे दिए बटन पर टैप करें।
                       </p>
                       <a
                         href={inviteUrl}

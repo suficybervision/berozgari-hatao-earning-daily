@@ -6,9 +6,9 @@ import {
   Loader2,
   Lock,
   LogOut,
-  RotateCcw,
   Save,
   Search,
+  Send,
   Settings,
   ShieldAlert,
   Table2,
@@ -17,20 +17,12 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import type {
-  CourseSettings,
-  DetectedTelegramChannel,
-  OrderRecord,
-  OrderStatus,
-  TelegramConfigStatus,
-} from '../types';
+import type { CourseSettings, OrderRecord, OrderStatus } from '../types';
 import {
   approveOrder,
-  detectAdminTelegramChannels,
-  fetchAdminTelegramStatus,
+  fetchAdminTelegramInviteLink,
   rejectOrder,
-  resetTelegramAccessGrant,
-  saveAdminTelegramChannel,
+  saveAdminTelegramInviteLink,
   saveCourseSettings,
   subscribeAllOrders,
   uploadCourseAsset,
@@ -81,11 +73,8 @@ export default function AdminDashboard({
   const [savingSettings, setSavingSettings] = useState(false);
   const [uploadingAsset, setUploadingAsset] = useState<'cover' | 'qr' | null>(null);
 
-  const [tgStatus, setTgStatus] = useState<TelegramConfigStatus | null>(null);
-  const [channelIdInput, setChannelIdInput] = useState('');
+  const [telegramInviteLink, setTelegramInviteLink] = useState('');
   const [savingTelegram, setSavingTelegram] = useState(false);
-  const [detectingChannels, setDetectingChannels] = useState(false);
-  const [detectedChannels, setDetectedChannels] = useState<DetectedTelegramChannel[]>([]);
 
   useEffect(() => {
     setFormSettings(settings);
@@ -109,10 +98,9 @@ export default function AdminDashboard({
 
   useEffect(() => {
     if (!user || !isAdmin) return;
-    fetchAdminTelegramStatus(user)
-      .then((status) => {
-        setTgStatus(status);
-        if (status.channelIdValue) setChannelIdInput(status.channelIdValue);
+    fetchAdminTelegramInviteLink()
+      .then((link) => {
+        if (link) setTelegramInviteLink(link);
       })
       .catch(() => {
         // Non-blocking
@@ -240,26 +228,6 @@ export default function AdminDashboard({
     }
   };
 
-  const handleResetInvite = async (orderCode: string) => {
-    setActionBusyId(orderCode);
-    try {
-      await resetTelegramAccessGrant(user, orderCode);
-      onNotify(
-        'success',
-        'Telegram Invite Lock Reset',
-        `${orderCode} can generate one fresh Telegram link.`
-      );
-    } catch (err) {
-      onNotify(
-        'error',
-        'Reset Failed',
-        err instanceof Error ? err.message : 'Could not reset invite lock.'
-      );
-    } finally {
-      setActionBusyId('');
-    }
-  };
-
   const handleAssetUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     kind: 'cover' | 'qr'
@@ -305,53 +273,21 @@ export default function AdminDashboard({
     e.preventDefault();
     setSavingTelegram(true);
     try {
-      const res = await saveAdminTelegramChannel(user, channelIdInput);
-      const updatedStatus = await fetchAdminTelegramStatus(user);
-      setTgStatus(updatedStatus);
+      const savedLink = await saveAdminTelegramInviteLink(telegramInviteLink);
+      setTelegramInviteLink(savedLink);
       onNotify(
         'success',
-        'Telegram Channel Saved',
-        res.chatTitle
-          ? `Verified connection with "${res.chatTitle}".`
-          : 'Channel ID saved on backend.'
+        'Telegram Channel Link Saved',
+        'Approved customers clicking VIEW NOW will open this channel link.'
       );
     } catch (err) {
       onNotify(
         'error',
-        'Telegram Config Error',
-        err instanceof Error ? err.message : 'Could not verify Telegram Channel ID.'
+        'Invalid Telegram Link',
+        err instanceof Error ? err.message : 'Could not save Telegram Channel Invite Link.'
       );
     } finally {
       setSavingTelegram(false);
-    }
-  };
-
-  const handleDetectChannels = async () => {
-    setDetectingChannels(true);
-    try {
-      const res = await detectAdminTelegramChannels(user);
-      setDetectedChannels(res.channels);
-      if (res.channels.length === 0) {
-        onNotify(
-          'info',
-          'No Channels Detected Yet',
-          `Add @${res.botUsername || 'SufiyanAcademyAccessBot'} as Admin to your Telegram Channel and post 1 test message in the channel, then click Auto-Detect again.`
-        );
-      } else {
-        onNotify(
-          'success',
-          `${res.channels.length} Channel(s) Found`,
-          'Select your course channel below and click Verify & Save.'
-        );
-      }
-    } catch (err) {
-      onNotify(
-        'error',
-        'Auto-Detect Failed',
-        err instanceof Error ? err.message : 'Unable to query Telegram bot updates.'
-      );
-    } finally {
-      setDetectingChannels(false);
     }
   };
 
@@ -582,16 +518,9 @@ export default function AdminDashboard({
                                 </button>
                               </div>
                             ) : (
-                              <button
-                                type="button"
-                                disabled={actionBusyId === ord.orderCode}
-                                onClick={() => handleResetInvite(ord.orderCode)}
-                                title="Reset Telegram invite lock if user's link expired"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-600 border border-zinc-200 rounded-lg hover:text-zinc-950 hover:border-zinc-400 cursor-pointer"
-                              >
-                                <RotateCcw className="w-3 h-3" />
-                                <span>Reset Invite</span>
-                              </button>
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 rounded-lg">
+                                Access Unlocked
+                              </span>
                             )}
                           </td>
                         </tr>
@@ -818,124 +747,52 @@ export default function AdminDashboard({
               </button>
             </form>
 
-            {/* Telegram Bot & Channel Integration Panel */}
+            {/* Telegram Private Channel Invite Link Panel */}
             <div className="lg:col-span-5 bg-[#09090B] text-white rounded-2xl border border-zinc-800 p-6 sm:p-7 space-y-5">
               <div className="border-b border-zinc-800 pb-4">
-                <p className="text-xs font-medium text-[#E5C158] mb-1">Backend Security</p>
+                <p className="text-xs font-medium text-[#E5C158] mb-1">Course Access Link</p>
                 <h2 className="font-display text-lg font-bold text-white">
-                  Private Telegram Integration
+                  Telegram Private Channel Link
                 </h2>
               </div>
 
-              <div className="space-y-3 text-xs">
-                <div className="flex items-center justify-between py-2.5 px-3.5 rounded-xl bg-zinc-900 border border-zinc-800">
-                  <span className="text-zinc-400">
-                    TELEGRAM_BOT_TOKEN{' '}
-                    {tgStatus?.botUsername ? `(@${tgStatus.botUsername})` : ''}
-                  </span>
-                  <span
-                    className={`font-semibold ${
-                      tgStatus?.botTokenConfigured ? 'text-emerald-400' : 'text-amber-400'
-                    }`}
-                  >
-                    {tgStatus?.botTokenConfigured ? 'Connected' : 'Missing in Server Env'}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-2.5 px-3.5 rounded-xl bg-zinc-900 border border-zinc-800">
-                  <span className="text-zinc-400">Telegram Channel ID</span>
-                  <span
-                    className={`font-mono ${
-                      tgStatus?.channelIdConfigured ? 'text-emerald-400' : 'text-amber-400'
-                    }`}
-                  >
-                    {tgStatus?.channelIdConfigured
-                      ? `${tgStatus.chatTitle ? `${tgStatus.chatTitle} · ` : ''}${tgStatus.channelIdMasked}`
-                      : 'Not Set'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-2.5">
-                <button
-                  type="button"
-                  disabled={detectingChannels || !tgStatus?.botTokenConfigured}
-                  onClick={handleDetectChannels}
-                  className="w-full py-2.5 px-4 text-xs font-semibold text-[#E5C158] border border-[#D4AF37]/40 rounded-xl hover:bg-[#D4AF37]/10 disabled:opacity-50 transition-colors cursor-pointer"
-                >
-                  {detectingChannels ? 'Scanning Bot Channels...' : 'Auto-Detect My Channel ID'}
-                </button>
-
-                {detectedChannels.length > 0 && (
-                  <div className="space-y-1.5">
-                    {detectedChannels.map((ch) => (
-                      <button
-                        key={ch.id}
-                        type="button"
-                        onClick={() => setChannelIdInput(ch.id)}
-                        className="w-full text-left px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-[#D4AF37] transition-colors cursor-pointer"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-white truncate">
-                            {ch.title}
-                          </span>
-                          <span
-                            className={`text-[10px] font-semibold ${
-                              ch.botIsAdmin ? 'text-emerald-400' : 'text-amber-400'
-                            }`}
-                          >
-                            {ch.botIsAdmin ? 'Bot Admin OK' : 'Make Bot Admin'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] font-mono text-zinc-400 mt-0.5">{ch.id}</p>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <form onSubmit={handleSaveTelegram} className="space-y-3">
+              <form onSubmit={handleSaveTelegram} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    Private Telegram Channel ID (starts with -100)
+                  <label
+                    htmlFor="telegram-invite-link"
+                    className="block text-xs font-semibold text-zinc-300 mb-1.5"
+                  >
+                    Telegram Private Channel Invite Link *
                   </label>
                   <input
-                    type="text"
+                    id="telegram-invite-link"
+                    type="url"
                     required
-                    value={channelIdInput}
-                    onChange={(e) => setChannelIdInput(e.target.value)}
-                    placeholder="e.g., -1001234567890"
-                    className="w-full px-3.5 py-2.5 text-sm font-mono bg-zinc-900 border border-zinc-700 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-[#D4AF37]"
+                    value={telegramInviteLink}
+                    onChange={(e) => setTelegramInviteLink(e.target.value)}
+                    placeholder="https://t.me/+AbCdEfGhIjKlMnOp"
+                    className="w-full px-3.5 py-3 text-sm font-mono bg-zinc-900 border border-zinc-700 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-[#D4AF37]"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={savingTelegram}
-                  className="w-full py-3 px-5 text-xs font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 disabled:opacity-50 transition-all cursor-pointer"
+                  className="w-full py-3.5 px-5 inline-flex items-center justify-center gap-2 text-xs font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 disabled:opacity-50 transition-all cursor-pointer"
                 >
-                  {savingTelegram ? 'Verifying & Saving...' : 'Verify & Save Channel ID'}
+                  {savingTelegram ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  <span>{savingTelegram ? 'Saving...' : 'Save Telegram Channel Link'}</span>
                 </button>
               </form>
 
-              <div className="pt-4 border-t border-zinc-800 text-xs text-zinc-400 space-y-2 leading-relaxed">
-                <p className="font-semibold text-zinc-200">Setup Checklist:</p>
+              <div className="pt-4 border-t border-zinc-800 text-xs text-zinc-400 leading-relaxed space-y-1.5">
+                <p className="text-zinc-200 font-semibold">कैसे काम करेगा:</p>
                 <p>
-                  1. Add{' '}
-                  <code className="text-[#E5C158]">
-                    @{tgStatus?.botUsername || 'SufiyanAcademyAccessBot'}
-                  </code>{' '}
-                  as an <strong>Administrator</strong> in your private Telegram Course Channel with{' '}
-                  <em>Invite Users via Link</em> permission.
-                </p>
-                <p>
-                  2. Post 1 message in that channel and click{' '}
-                  <strong>Auto-Detect My Channel ID</strong> above (or paste your{' '}
-                  <code className="text-zinc-200">-100...</code> Channel ID). Personal user IDs like{' '}
-                  <code className="text-zinc-200">8851455020</code> do not support channel invites.
-                </p>
-                <p>
-                  3. Once saved, clicking <strong>VIEW NOW</strong> redirects approved customers directly into your Telegram channel with a 1-time invite link.
+                  जब आप किसी कस्टमर का पेमेंट <strong>APPROVE</strong> करेंगे और वह अपने Unique Order Code से <strong>VIEW NOW</strong> दबाएगा, तो सीधे यही Telegram Channel Link खुल जाएगा।
                 </p>
               </div>
             </div>

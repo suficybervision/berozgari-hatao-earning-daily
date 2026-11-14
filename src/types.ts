@@ -37,7 +37,6 @@ export interface TrackingResult {
   amount: number;
   createdAt: string | null;
   updatedAt: string | null;
-  accessClaimed: boolean;
 }
 
 export interface ToastNotice {
@@ -45,21 +44,4 @@ export interface ToastNotice {
   type: 'success' | 'error' | 'info';
   title: string;
   message?: string;
-}
-
-export interface TelegramConfigStatus {
-  botTokenConfigured: boolean;
-  botUsername?: string;
-  channelIdConfigured: boolean;
-  channelIdMasked: string;
-  channelIdValue?: string;
-  chatTitle?: string;
-}
-
-export interface DetectedTelegramChannel {
-  id: string;
-  title: string;
-  type: string;
-  username?: string;
-  botIsAdmin: boolean;
 }

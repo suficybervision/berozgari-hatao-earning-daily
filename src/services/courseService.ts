@@ -16,10 +16,8 @@ import { signInWithPopup, signOut, type User } from 'firebase/auth';
 import { auth, db, googleProvider, handleFirestoreError, OperationType, storage } from '../firebase';
 import type {
   CourseSettings,
-  DetectedTelegramChannel,
   OrderRecord,
   OrderStatus,
-  TelegramConfigStatus,
   TrackingResult,
 } from '../types';
 
@@ -256,7 +254,7 @@ export async function saveCourseSettings(settings: CourseSettings): Promise<void
 
 export async function uploadCourseAsset(
   file: File,
-  user: User,
+  _user: User,
   kind: 'cover' | 'qr'
 ): Promise<string> {
   const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
@@ -274,19 +272,22 @@ export async function uploadCourseAsset(
     return await getDownloadURL(storageRef);
   } catch {
     const dataUrl = await compressImageToDataUrl(file, 700000);
-    const idToken = await user.getIdToken();
-    const payload = await safeFetchJson<{ url?: string }>('/api/uploads/course-asset', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({ dataUrl, kind }),
-    });
-    if (!payload.url) {
-      throw new Error('Failed to upload image.');
+    const mimeMatch = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const assetId = `asset_${kind}_${Date.now()}`;
+    const path = `course_assets/${assetId}`;
+    try {
+      await setDoc(doc(db, 'course_assets', assetId), {
+        assetId,
+        dataUrl,
+        mimeType,
+        updatedAt: serverTimestamp(),
+      });
+      return `/api/course-assets/${assetId}`;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
     }
-    return payload.url;
+    throw new Error('Failed to upload image.');
   }
 }
 
@@ -353,18 +354,16 @@ export async function trackOrderByCode(orderCode: string): Promise<TrackingResul
     amount: Number(data.amount || 99),
     createdAt: data.createdAt || null,
     updatedAt: data.updatedAt || null,
-    accessClaimed: Boolean(data.accessClaimed),
   };
 }
 
-// Public Telegram Access Generation via Verified Approved Order Code
+// Public Telegram Channel Link Retrieval via Verified Approved Order Code
 export async function requestTelegramInviteByCode(
   orderCode: string
-): Promise<{ inviteLink: string; expiresAt: number }> {
+): Promise<{ inviteLink: string }> {
   const cleanCode = normalizeOrderCode(orderCode);
   const data = await safeFetchJson<{
     inviteLink?: string;
-    expiresAt?: number;
   }>('/api/telegram/invite', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -372,12 +371,11 @@ export async function requestTelegramInviteByCode(
   });
 
   if (!data.inviteLink) {
-    throw new Error('Unable to generate Telegram access link.');
+    throw new Error('Telegram channel link is not configured yet.');
   }
 
   return {
     inviteLink: data.inviteLink,
-    expiresAt: data.expiresAt || Date.now() + 300000,
   };
 }
 
@@ -457,57 +455,34 @@ export async function rejectOrder(
   }
 }
 
-export async function resetTelegramAccessGrant(user: User, orderCode: string): Promise<void> {
-  const idToken = await user.getIdToken();
-  await safeFetchJson<{ reset?: boolean }>('/api/admin/reset-access-grant', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({ orderCode }),
-  });
+export async function fetchAdminTelegramInviteLink(): Promise<string> {
+  const path = 'telegram_settings/channel';
+  try {
+    const snap = await getDoc(doc(db, 'telegram_settings', 'channel'));
+    if (!snap.exists()) return '';
+    return String(snap.data().inviteLink || '');
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+    return '';
+  }
 }
 
-export async function fetchAdminTelegramStatus(user: User): Promise<TelegramConfigStatus> {
-  const idToken = await user.getIdToken();
-  return safeFetchJson<TelegramConfigStatus>('/api/admin/telegram-status', {
-    headers: { Authorization: `Bearer ${idToken}` },
-  });
-}
-
-export async function detectAdminTelegramChannels(
-  user: User
-): Promise<{ botUsername: string; channels: DetectedTelegramChannel[] }> {
-  const idToken = await user.getIdToken();
-  return safeFetchJson<{ botUsername: string; channels: DetectedTelegramChannel[] }>(
-    '/api/admin/telegram-detect',
-    {
-      headers: { Authorization: `Bearer ${idToken}` },
-    }
-  );
-}
-
-export async function saveAdminTelegramChannel(
-  user: User,
-  channelId: string
-): Promise<{ saved: boolean; chatTitle?: string; botTokenConfigured: boolean }> {
-  const idToken = await user.getIdToken();
-  const data = await safeFetchJson<{
-    saved?: boolean;
-    chatTitle?: string;
-    botTokenConfigured?: boolean;
-  }>('/api/admin/telegram-config', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({ channelId }),
-  });
-  return {
-    saved: Boolean(data.saved),
-    chatTitle: data.chatTitle,
-    botTokenConfigured: Boolean(data.botTokenConfigured),
-  };
+export async function saveAdminTelegramInviteLink(inviteLink: string): Promise<string> {
+  const cleaned = inviteLink.trim();
+  if (!/^https:\/\/(t\.me|telegram\.me)\/[A-Za-z0-9_+\-/]+$/.test(cleaned)) {
+    throw new Error(
+      'कृपया सही Telegram Private Channel Invite Link डालें (जैसे: https://t.me/+AbCdEfGhIjKlMnOp)।'
+    );
+  }
+  const path = 'telegram_settings/channel';
+  try {
+    await setDoc(doc(db, 'telegram_settings', 'channel'), {
+      inviteLink: cleaned.slice(0, 500),
+      updatedAt: serverTimestamp(),
+    });
+    return cleaned;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+    throw new Error('Failed to save Telegram Channel Invite Link.');
+  }
 }

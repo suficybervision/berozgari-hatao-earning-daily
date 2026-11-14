@@ -4,10 +4,6 @@ import type { Request, Response, NextFunction } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  handleAdminResetAccessGrant,
-  handleAdminTelegramConfig,
-  handleAdminTelegramDetect,
-  handleAdminTelegramStatus,
   handleGetCourseAsset,
   handleGetScreenshot,
   handleHealth,
@@ -15,7 +11,6 @@ import {
   handleOrderSubmit,
   handleOrderTrack,
   handleTelegramInvite,
-  handleUploadCourseAsset,
   sendJson,
 } from './api/_lib/backend.ts';
 
@@ -54,15 +49,8 @@ async function startServer() {
   app.all('/api/course-assets/:assetId', (req, res) =>
     void handleGetCourseAsset(req, res, req.params.assetId)
   );
-  app.all('/api/uploads/course-asset', (req, res) => void handleUploadCourseAsset(req, res));
   app.all('/api/uploads/:filename', (req, res) =>
     void handleLegacyLocalUpload(req, res, req.params.filename)
-  );
-  app.all('/api/admin/telegram-status', (req, res) => void handleAdminTelegramStatus(req, res));
-  app.all('/api/admin/telegram-detect', (req, res) => void handleAdminTelegramDetect(req, res));
-  app.all('/api/admin/telegram-config', (req, res) => void handleAdminTelegramConfig(req, res));
-  app.all('/api/admin/reset-access-grant', (req, res) =>
-    void handleAdminResetAccessGrant(req, res)
   );
 
   // Catch any unknown /api/* route with JSON 404 (never HTML)

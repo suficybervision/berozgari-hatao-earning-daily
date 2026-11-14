@@ -144,10 +144,12 @@ service cloud.firestore {
     }
 
     function isValidTelegramSettings(data) {
-      return data.keys().hasAll(['channelId', 'chatTitle', 'updatedAt'])
-        && data.keys().hasOnly(['channelId', 'chatTitle', 'updatedAt'])
-        && data.channelId is string && data.channelId.size() >= 6 && data.channelId.size() <= 24 && data.channelId.matches('^-100[0-9]{5,20}$')
-        && data.chatTitle is string && data.chatTitle.size() <= 150
+      return data.keys().hasAll(['inviteLink', 'updatedAt'])
+        && data.keys().hasOnly(['inviteLink', 'updatedAt'])
+        && data.inviteLink is string
+        && data.inviteLink.size() >= 12
+        && data.inviteLink.size() <= 500
+        && data.inviteLink.matches('^https://(t\\.me|telegram\\.me)/[A-Za-z0-9_+\\-/]+$')
         && data.updatedAt is timestamp;
     }
 
