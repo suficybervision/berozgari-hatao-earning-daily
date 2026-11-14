@@ -93,16 +93,7 @@ export async function signOutAdmin(): Promise<void> {
 
 export async function checkUserIsAdmin(user: User | null): Promise<boolean> {
   if (!user || !user.emailVerified) return false;
-  if (user.email?.toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase()) {
-    return true;
-  }
-  const path = `admins/${user.uid}`;
-  try {
-    const snap = await getDoc(doc(db, 'admins', user.uid));
-    return snap.exists();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-  }
+  return user.email?.toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase();
 }
 
 export function subscribeCourseSettings(

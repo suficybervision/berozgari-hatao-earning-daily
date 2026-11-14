@@ -18,11 +18,16 @@ import TrackOrderView from './components/TrackOrderView';
 import AdminDashboard from './components/AdminDashboard';
 import LegalModal, { type LegalDocType } from './components/LegalModal';
 
-function resolveViewFromPath(pathname: string): AppView {
-  const clean = pathname.replace(/\/+$/, '') || '/';
-  if (clean === '/admin') return 'admin';
-  if (clean === '/track') return 'track';
-  if (clean === '/checkout') return 'checkout';
+function resolveViewFromLocation(): AppView {
+  const cleanPath = window.location.pathname.replace(/\/+$/, '') || '/';
+  const hash = window.location.hash.replace(/^#/, '').replace(/\/+$/, '');
+  const params = new URLSearchParams(window.location.search);
+
+  if (cleanPath === '/admin' || hash === '/admin' || params.get('admin') === '1') {
+    return 'admin';
+  }
+  if (cleanPath === '/track' || hash === '/track') return 'track';
+  if (cleanPath === '/checkout' || hash === '/checkout') return 'checkout';
   return 'home';
 }
 
@@ -34,9 +39,7 @@ function pathForView(view: AppView): string {
 }
 
 export default function App() {
-  const [view, setView] = useState<AppView>(() =>
-    resolveViewFromPath(window.location.pathname)
-  );
+  const [view, setView] = useState<AppView>(() => resolveViewFromLocation());
   const [trackInitialCode, setTrackInitialCode] = useState('');
 
   // Admin-only Firebase Auth state
@@ -58,13 +61,17 @@ export default function App() {
     []
   );
 
-  // Sync browser back/forward navigation with URL paths (/admin, /track, /checkout, /)
+  // Sync browser back/forward and hash navigation with URL paths (/admin, /track, /checkout, /)
   useEffect(() => {
-    const handlePopState = () => {
-      setView(resolveViewFromPath(window.location.pathname));
+    const handleRouteChange = () => {
+      setView(resolveViewFromLocation());
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('popstate', handleRouteChange);
+    window.addEventListener('hashchange', handleRouteChange);
+    return () => {
+      window.removeEventListener('popstate', handleRouteChange);
+      window.removeEventListener('hashchange', handleRouteChange);
+    };
   }, []);
 
   // Subscribe to public course settings
@@ -99,11 +106,24 @@ export default function App() {
   const handleAdminSignIn = useCallback(async () => {
     try {
       const signedInUser = await signInAdminWithGoogle();
+      const allowed = await checkUserIsAdmin(signedInUser);
+      if (!allowed) {
+        await signOutAdmin();
+        notify(
+          'error',
+          'Unauthorized Gmail',
+          'केवल अधिकृत एडमिन Gmail अकाउंट से ही लॉगिन किया जा सकता है।'
+        );
+        return signedInUser;
+      }
       notify('success', 'Admin Signed In', signedInUser.email || undefined);
       return signedInUser;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Admin Sign-In was cancelled.';
-      notify('error', 'Sign-In Failed', msg);
+      const rawMsg = err instanceof Error ? err.message : 'Admin Sign-In was cancelled.';
+      const friendlyMsg = rawMsg.includes('unauthorized-domain')
+        ? `Add "${window.location.hostname}" to Firebase Console → Authentication → Settings → Authorized domains.`
+        : rawMsg;
+      notify('error', 'Admin Sign-In Failed', friendlyMsg);
       throw err;
     }
   }, [notify]);

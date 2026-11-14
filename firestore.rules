@@ -37,10 +37,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isVerifiedUser() && (
-        request.auth.token.email == 'hajshdbdb262837@gmail.com' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
+      return isVerifiedUser() && request.auth.token.email == 'hajshdbdb262837@gmail.com';
     }
 
     // 3. Entity Validation Blueprints
