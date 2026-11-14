@@ -35,7 +35,7 @@ export default function SecureScreenshot({
         return;
       }
 
-      if (!src.startsWith('/api/uploads/ss_')) {
+      if (!src.startsWith('/api/screenshots/') && !src.startsWith('/api/uploads/ss_')) {
         if (active) {
           setResolvedUrl(src);
           setLoading(false);
@@ -57,7 +57,15 @@ export default function SecureScreenshot({
           headers: { Authorization: `Bearer ${idToken}` },
         });
         if (!res.ok) {
-          throw new Error('Unauthorized or missing screenshot');
+          let errMessage = 'Unauthorized or missing screenshot';
+          try {
+            const txt = await res.text();
+            const parsed = JSON.parse(txt) as { error?: string };
+            if (parsed?.error) errMessage = parsed.error;
+          } catch {
+            // Keep safe fallback message
+          }
+          throw new Error(errMessage);
         }
         const blob = await res.blob();
         objectUrl = URL.createObjectURL(blob);

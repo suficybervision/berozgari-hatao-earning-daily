@@ -5,25 +5,10 @@
       "description": "Authorized platform administrator record",
       "type": "object",
       "properties": {
-        "uid": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "email": {
-          "type": "string",
-          "minLength": 3,
-          "maxLength": 160
-        },
-        "role": {
-          "type": "string",
-          "enum": ["admin"]
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        }
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "role": { "type": "string", "enum": ["admin"] },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "role", "createdAt"]
     },
@@ -45,43 +30,20 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
-        "courseName",
-        "courseDescription",
-        "courseCoverUrl",
-        "originalPrice",
-        "showOriginalPrice",
-        "coursePrice",
-        "upiId",
-        "qrCodeUrl",
-        "whatsappNumber",
-        "isAvailable",
-        "updatedAt"
+        "courseName", "courseDescription", "courseCoverUrl",
+        "originalPrice", "showOriginalPrice", "coursePrice",
+        "upiId", "qrCodeUrl", "whatsappNumber", "isAvailable", "updatedAt"
       ]
     },
     "Order": {
       "title": "Order",
-      "description": "Customer PII and payment proof record accessible only to verified administrators",
+      "description": "Customer PII and payment proof record accessible only to administrators",
       "type": "object",
       "properties": {
-        "orderCode": {
-          "type": "string",
-          "minLength": 14,
-          "maxLength": 14,
-          "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$"
-        },
+        "orderCode": { "type": "string", "minLength": 14, "maxLength": 14, "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$" },
         "name": { "type": "string", "minLength": 2, "maxLength": 120 },
-        "mobile": {
-          "type": "string",
-          "minLength": 10,
-          "maxLength": 15,
-          "pattern": "^[0-9+\\-\\s]{10,15}$"
-        },
-        "utr": {
-          "type": "string",
-          "minLength": 6,
-          "maxLength": 40,
-          "pattern": "^[A-Z0-9]{6,40}$"
-        },
+        "mobile": { "type": "string", "minLength": 10, "maxLength": 15, "pattern": "^[0-9+\\-\\s]{10,15}$" },
+        "utr": { "type": "string", "minLength": 6, "maxLength": 40, "pattern": "^[A-Z0-9]{6,40}$" },
         "screenshotUrl": { "type": "string", "minLength": 5, "maxLength": 2048 },
         "amount": { "type": "number" },
         "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
@@ -92,18 +54,9 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
-        "orderCode",
-        "name",
-        "mobile",
-        "utr",
-        "screenshotUrl",
-        "amount",
-        "status",
-        "rejectionReason",
-        "adminId",
-        "createdAt",
-        "approvedAt",
-        "updatedAt"
+        "orderCode", "name", "mobile", "utr", "screenshotUrl",
+        "amount", "status", "rejectionReason", "adminId",
+        "createdAt", "approvedAt", "updatedAt"
       ]
     },
     "OrderTracking": {
@@ -111,44 +64,46 @@
       "description": "PII-free public tracking status keyed by cryptographically random orderCode",
       "type": "object",
       "properties": {
-        "orderCode": {
-          "type": "string",
-          "minLength": 14,
-          "maxLength": 14,
-          "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$"
-        },
+        "orderCode": { "type": "string", "minLength": 14, "maxLength": 14, "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$" },
         "amount": { "type": "number" },
         "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
         "rejectionReason": { "type": "string", "maxLength": 500 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": [
-        "orderCode",
-        "amount",
-        "status",
-        "rejectionReason",
-        "createdAt",
-        "updatedAt"
-      ]
+      "required": ["orderCode", "amount", "status", "rejectionReason", "createdAt", "updatedAt"]
+    },
+    "OrderScreenshot": {
+      "title": "OrderScreenshot",
+      "description": "Admin-only fallback screenshot payload when Firebase Storage bucket rules are not configured",
+      "type": "object",
+      "properties": {
+        "orderCode": { "type": "string", "minLength": 14, "maxLength": 14, "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$" },
+        "dataUrl": { "type": "string", "minLength": 20, "maxLength": 950000 },
+        "mimeType": { "type": "string", "enum": ["image/jpeg", "image/png"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderCode", "dataUrl", "mimeType", "createdAt"]
+    },
+    "CourseAsset": {
+      "title": "CourseAsset",
+      "description": "Admin-uploaded course cover or custom QR asset stored persistently for serverless deployments",
+      "type": "object",
+      "properties": {
+        "assetId": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "dataUrl": { "type": "string", "minLength": 20, "maxLength": 950000 },
+        "mimeType": { "type": "string", "enum": ["image/jpeg", "image/png", "image/webp"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["assetId", "dataUrl", "mimeType", "updatedAt"]
     },
     "UtrLock": {
       "title": "UtrLock",
       "description": "Atomic uniqueness lock keyed by normalized UTR number",
       "type": "object",
       "properties": {
-        "utr": {
-          "type": "string",
-          "minLength": 6,
-          "maxLength": 40,
-          "pattern": "^[A-Z0-9]{6,40}$"
-        },
-        "orderCode": {
-          "type": "string",
-          "minLength": 14,
-          "maxLength": 14,
-          "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$"
-        },
+        "utr": { "type": "string", "minLength": 6, "maxLength": 40, "pattern": "^[A-Z0-9]{6,40}$" },
+        "orderCode": { "type": "string", "minLength": 14, "maxLength": 14, "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["utr", "orderCode", "createdAt"]
@@ -158,12 +113,7 @@
       "description": "One-time Telegram invite issuance lock preventing repeated invite generation",
       "type": "object",
       "properties": {
-        "orderCode": {
-          "type": "string",
-          "minLength": 14,
-          "maxLength": 14,
-          "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$"
-        },
+        "orderCode": { "type": "string", "minLength": 14, "maxLength": 14, "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$" },
         "grantedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["orderCode", "grantedAt"]
@@ -186,13 +136,21 @@
       "schema": { "$ref": "#/entities/OrderTracking" },
       "description": "PII-free tracking status record keyed by unguessable orderCode"
     },
+    "/order_screenshots/{orderCode}": {
+      "schema": { "$ref": "#/entities/OrderScreenshot" },
+      "description": "Admin-only persistent payment screenshot store for serverless deployments"
+    },
+    "/course_assets/{assetId}": {
+      "schema": { "$ref": "#/entities/CourseAsset" },
+      "description": "Admin-managed course cover and QR assets"
+    },
     "/utr_locks/{utrId}": {
       "schema": { "$ref": "#/entities/UtrLock" },
       "description": "UTR uniqueness lock preventing duplicate submissions"
     },
     "/access_grants/{orderCode}": {
       "schema": { "$ref": "#/entities/AccessGrant" },
-      "description": "Single-issuance Telegram access lock per approved orderCode"
+      "description": "Single-use Telegram invite issuance lock per approved orderCode"
     }
   }
 }

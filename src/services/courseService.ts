@@ -72,6 +72,53 @@ export function normalizeOrderCode(input: string): string {
   return input.trim().toUpperCase();
 }
 
+async function safeFetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch {
+    throw new Error('Network error while contacting server. Please check your internet connection.');
+  }
+
+  const rawText = await res.text();
+  const trimmed = rawText.trim();
+  let parsed: unknown = null;
+
+  if (trimmed) {
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      parsed = null;
+    }
+  } else {
+    parsed = {};
+  }
+
+  if (parsed === null || typeof parsed !== 'object') {
+    if (res.status === 404) {
+      throw new Error(
+        'Server API endpoint not found (HTTP 404). Please verify backend deployment.'
+      );
+    }
+    if (res.status === 413) {
+      throw new Error(
+        'Screenshot file is too large for upload (HTTP 413). Please choose a smaller image.'
+      );
+    }
+    throw new Error(
+      `Server returned an unexpected non-JSON response (HTTP ${res.status}). Please try again.`
+    );
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  if (!res.ok) {
+    const serverError = typeof obj.error === 'string' && obj.error ? obj.error : '';
+    throw new Error(serverError || `Request failed (HTTP ${res.status}).`);
+  }
+
+  return parsed as T;
+}
+
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -79,6 +126,59 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Failed to read image file.'));
     reader.readAsDataURL(file);
   });
+}
+
+async function compressImageToDataUrl(
+  file: File,
+  maxDataUrlChars = 650000
+): Promise<string> {
+  const rawDataUrl = await readFileAsDataUrl(file);
+  if (rawDataUrl.length <= maxDataUrlChars && file.type !== 'image/webp') {
+    return rawDataUrl;
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Unable to process screenshot image.'));
+      image.src = objectUrl;
+    });
+
+    const dimensions = [1400, 1080, 840];
+    const qualities = [0.85, 0.72, 0.58, 0.45];
+
+    for (const maxDim of dimensions) {
+      const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+      const width = Math.max(1, Math.round((img.width || 800) * scale));
+      const height = Math.max(1, Math.round((img.height || 600) * scale));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) break;
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+
+      for (const quality of qualities) {
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        if (compressed.length <= maxDataUrlChars) {
+          return compressed;
+        }
+      }
+    }
+
+    if (rawDataUrl.length <= 900000) {
+      return rawDataUrl;
+    }
+    throw new Error('Screenshot image is too large. Please upload a clearer, smaller screenshot.');
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 // Admin Authentication Only
@@ -172,9 +272,9 @@ export async function uploadCourseAsset(
     await uploadBytes(storageRef, file, { contentType: file.type });
     return await getDownloadURL(storageRef);
   } catch {
-    const dataUrl = await readFileAsDataUrl(file);
+    const dataUrl = await compressImageToDataUrl(file, 700000);
     const idToken = await user.getIdToken();
-    const res = await fetch('/api/uploads/course-asset', {
+    const payload = await safeFetchJson<{ url?: string }>('/api/uploads/course-asset', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -182,9 +282,8 @@ export async function uploadCourseAsset(
       },
       body: JSON.stringify({ dataUrl, kind }),
     });
-    const payload = (await res.json()) as { url?: string; error?: string };
-    if (!res.ok || !payload.url) {
-      throw new Error(payload.error || 'Failed to upload image.');
+    if (!payload.url) {
+      throw new Error('Failed to upload image.');
     }
     return payload.url;
   }
@@ -205,9 +304,13 @@ export async function submitOrderRequest(params: {
     throw new Error('Screenshot file size must be under 5 MB.');
   }
 
-  const screenshotDataUrl = await readFileAsDataUrl(params.file);
+  const screenshotDataUrl = await compressImageToDataUrl(params.file, 650000);
 
-  const res = await fetch('/api/orders/submit', {
+  const data = await safeFetchJson<{
+    orderCode?: string;
+    status?: OrderStatus;
+    amount?: number;
+  }>('/api/orders/submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -218,15 +321,8 @@ export async function submitOrderRequest(params: {
     }),
   });
 
-  const data = (await res.json()) as {
-    orderCode?: string;
-    status?: OrderStatus;
-    amount?: number;
-    error?: string;
-  };
-
-  if (!res.ok || !data.orderCode) {
-    throw new Error(data.error || 'Failed to submit payment request.');
+  if (!data.orderCode) {
+    throw new Error('Failed to generate order tracking code. Please try again.');
   }
 
   return {
@@ -239,15 +335,14 @@ export async function submitOrderRequest(params: {
 // Public Unique Order Code Tracking (No Login Required)
 export async function trackOrderByCode(orderCode: string): Promise<TrackingResult> {
   const cleanCode = normalizeOrderCode(orderCode);
-  const res = await fetch('/api/orders/track', {
+  const data = await safeFetchJson<Partial<TrackingResult>>('/api/orders/track', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ orderCode: cleanCode }),
   });
 
-  const data = (await res.json()) as Partial<TrackingResult> & { error?: string };
-  if (!res.ok || !data.orderCode) {
-    throw new Error(data.error || 'Order code not found.');
+  if (!data.orderCode) {
+    throw new Error('Order code not found.');
   }
 
   return {
@@ -266,20 +361,17 @@ export async function requestTelegramInviteByCode(
   orderCode: string
 ): Promise<{ inviteLink: string; expiresAt: number }> {
   const cleanCode = normalizeOrderCode(orderCode);
-  const res = await fetch('/api/telegram/invite', {
+  const data = await safeFetchJson<{
+    inviteLink?: string;
+    expiresAt?: number;
+  }>('/api/telegram/invite', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ orderCode: cleanCode }),
   });
 
-  const data = (await res.json()) as {
-    inviteLink?: string;
-    expiresAt?: number;
-    error?: string;
-  };
-
-  if (!res.ok || !data.inviteLink) {
-    throw new Error(data.error || 'Unable to generate Telegram access link.');
+  if (!data.inviteLink) {
+    throw new Error('Unable to generate Telegram access link.');
   }
 
   return {
@@ -366,7 +458,7 @@ export async function rejectOrder(
 
 export async function resetTelegramAccessGrant(user: User, orderCode: string): Promise<void> {
   const idToken = await user.getIdToken();
-  const res = await fetch('/api/admin/reset-access-grant', {
+  await safeFetchJson<{ reset?: boolean }>('/api/admin/reset-access-grant', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -374,21 +466,13 @@ export async function resetTelegramAccessGrant(user: User, orderCode: string): P
     },
     body: JSON.stringify({ orderCode }),
   });
-  if (!res.ok) {
-    const data = (await res.json()) as { error?: string };
-    throw new Error(data.error || 'Failed to reset access grant.');
-  }
 }
 
 export async function fetchAdminTelegramStatus(user: User): Promise<TelegramConfigStatus> {
   const idToken = await user.getIdToken();
-  const res = await fetch('/api/admin/telegram-status', {
+  return safeFetchJson<TelegramConfigStatus>('/api/admin/telegram-status', {
     headers: { Authorization: `Bearer ${idToken}` },
   });
-  if (!res.ok) {
-    throw new Error('Failed to load Telegram status.');
-  }
-  return (await res.json()) as TelegramConfigStatus;
 }
 
 export async function saveAdminTelegramChannel(
@@ -396,7 +480,11 @@ export async function saveAdminTelegramChannel(
   channelId: string
 ): Promise<{ saved: boolean; chatTitle?: string; botTokenConfigured: boolean }> {
   const idToken = await user.getIdToken();
-  const res = await fetch('/api/admin/telegram-config', {
+  const data = await safeFetchJson<{
+    saved?: boolean;
+    chatTitle?: string;
+    botTokenConfigured?: boolean;
+  }>('/api/admin/telegram-config', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -404,15 +492,6 @@ export async function saveAdminTelegramChannel(
     },
     body: JSON.stringify({ channelId }),
   });
-  const data = (await res.json()) as {
-    saved?: boolean;
-    chatTitle?: string;
-    botTokenConfigured?: boolean;
-    error?: string;
-  };
-  if (!res.ok) {
-    throw new Error(data.error || 'Failed to save Telegram Channel ID.');
-  }
   return {
     saved: Boolean(data.saved),
     chatTitle: data.chatTitle,

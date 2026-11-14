@@ -110,6 +110,24 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidOrderScreenshot(data, code) {
+      return data.keys().hasAll(['orderCode', 'dataUrl', 'mimeType', 'createdAt'])
+        && data.keys().hasOnly(['orderCode', 'dataUrl', 'mimeType', 'createdAt'])
+        && data.orderCode is string && data.orderCode == code && isValidOrderCode(data.orderCode)
+        && data.dataUrl is string && data.dataUrl.size() >= 20 && data.dataUrl.size() <= 950000
+        && data.mimeType in ['image/jpeg', 'image/png']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidCourseAsset(data, assetId) {
+      return data.keys().hasAll(['assetId', 'dataUrl', 'mimeType', 'updatedAt'])
+        && data.keys().hasOnly(['assetId', 'dataUrl', 'mimeType', 'updatedAt'])
+        && data.assetId is string && data.assetId == assetId && isValidId(data.assetId)
+        && data.dataUrl is string && data.dataUrl.size() >= 20 && data.dataUrl.size() <= 950000
+        && data.mimeType in ['image/jpeg', 'image/png', 'image/webp']
+        && data.updatedAt is timestamp;
+    }
+
     function isValidUtrLock(data, utrId) {
       return data.keys().hasAll(['utr', 'orderCode', 'createdAt'])
         && data.keys().hasOnly(['utr', 'orderCode', 'createdAt'])
@@ -155,7 +173,6 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Orders contain customer PII (name, mobile, utr, screenshot) -> strictly Admin read/update only
     match /orders/{orderCode} {
       allow get: if isAdmin() && isValidOrderCode(orderCode);
       allow list: if isAdmin();
@@ -191,7 +208,6 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // PII-free tracking status split collection keyed by unguessable cryptographically random orderCode
     match /order_tracking/{orderCode} {
       allow get: if isValidOrderCode(orderCode);
       allow list: if false;
@@ -218,6 +234,31 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /order_screenshots/{orderCode} {
+      allow get: if isAdmin() && isValidOrderCode(orderCode);
+      allow list: if false;
+      allow create: if isValidOrderCode(orderCode)
+        && isValidOrderScreenshot(incoming(), orderCode)
+        && incoming().createdAt == request.time
+        && existsAfter(/databases/$(database)/documents/orders/$(orderCode));
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /course_assets/{assetId} {
+      allow get: if isValidId(assetId);
+      allow list: if false;
+      allow create: if isAdmin()
+        && isValidId(assetId)
+        && isValidCourseAsset(incoming(), assetId)
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(assetId)
+        && isValidCourseAsset(incoming(), assetId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(assetId);
+    }
+
     match /utr_locks/{utrId} {
       allow get: if isValidId(utrId);
       allow list: if false;
@@ -229,7 +270,6 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(utrId);
     }
 
-    // Single-use Telegram invite issuance lock per approved orderCode
     match /access_grants/{orderCode} {
       allow get: if isValidOrderCode(orderCode);
       allow list: if false;
