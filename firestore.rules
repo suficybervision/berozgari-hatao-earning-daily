@@ -136,23 +136,6 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
-    function isValidAccessGrant(data, code) {
-      return data.keys().hasAll(['orderCode', 'grantedAt'])
-        && data.keys().hasOnly(['orderCode', 'grantedAt'])
-        && data.orderCode is string && data.orderCode == code && isValidOrderCode(data.orderCode)
-        && data.grantedAt is timestamp;
-    }
-
-    function isValidTelegramSettings(data) {
-      return data.keys().hasAll(['inviteLink', 'updatedAt'])
-        && data.keys().hasOnly(['inviteLink', 'updatedAt'])
-        && data.inviteLink is string
-        && data.inviteLink.size() >= 12
-        && data.inviteLink.size() <= 500
-        && data.inviteLink.matches('^https://(t\\.me|telegram\\.me)/[A-Za-z0-9_+\\-/]+$')
-        && data.updatedAt is timestamp;
-    }
-
     // 4. Collection Rules
     match /admins/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
@@ -179,20 +162,6 @@ service cloud.firestore {
       allow update: if isAdmin()
         && settingId == 'course'
         && isValidCourseSettings(incoming())
-        && incoming().updatedAt == request.time;
-      allow delete: if false;
-    }
-
-    match /telegram_settings/{configId} {
-      allow get: if configId == 'channel';
-      allow list: if false;
-      allow create: if isAdmin()
-        && configId == 'channel'
-        && isValidTelegramSettings(incoming())
-        && incoming().updatedAt == request.time;
-      allow update: if isAdmin()
-        && configId == 'channel'
-        && isValidTelegramSettings(incoming())
         && incoming().updatedAt == request.time;
       allow delete: if false;
     }
@@ -292,17 +261,6 @@ service cloud.firestore {
         && existsAfter(/databases/$(database)/documents/orders/$(incoming().orderCode));
       allow update: if false;
       allow delete: if isAdmin() && isValidId(utrId);
-    }
-
-    match /access_grants/{orderCode} {
-      allow get: if isValidOrderCode(orderCode);
-      allow list: if false;
-      allow create: if isValidOrderCode(orderCode)
-        && isValidAccessGrant(incoming(), orderCode)
-        && incoming().grantedAt == request.time
-        && get(/databases/$(database)/documents/order_tracking/$(orderCode)).data.status == 'APPROVED';
-      allow update: if false;
-      allow delete: if isAdmin() && isValidOrderCode(orderCode);
     }
   }
 }

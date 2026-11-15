@@ -43,7 +43,7 @@ const BENEFITS = [
   {
     num: '05',
     title: 'Private Telegram community access',
-    subtitle: 'Verified one-time entry link to our private members-only Telegram channel with updates and guidance.',
+    subtitle: 'Direct access to our private members-only Telegram channel with updates, tutorials, and guidance.',
   },
 ];
 
@@ -64,14 +64,14 @@ const TRUST_ITEMS = [
     num: '03',
     title: 'Instant access after approval',
     description:
-      'Enter your Unique Order Code anytime on the tracking page — once approved, unlock your single-use Telegram invite instantly.',
+      'Enter your Unique Order Code anytime on the tracking page — once approved, click VIEW NOW to open our private Telegram channel directly.',
   },
 ];
 
 const FAQS = [
   {
     q: 'How do I receive course access after paying ₹99?',
-    a: 'Pay ₹99 via UPI ID or QR code on the checkout page, enter your UTR / Transaction ID, and upload the payment screenshot. You will receive a Unique Order Code (e.g., SUFI-8K29-XP51). Save that code, and enter it under "ALREADY PAID? TRACK ACCESS" to unlock your private Telegram link once verified.',
+    a: 'Pay ₹99 via UPI ID or QR code on the checkout page, enter your UTR / Transaction ID, and upload the payment screenshot. You will receive a Unique Order Code (e.g., SUFI-8K29-XP51). Save that code, and enter it under "ALREADY PAID? TRACK ACCESS" to open our private Telegram channel once verified.',
   },
   {
     q: 'Do I need to create an account or sign in with Google?',
@@ -86,8 +86,8 @@ const FAQS = [
     a: 'Most payments are manually verified within 15 to 60 minutes during active hours. Check status anytime using your Unique Order Code.',
   },
   {
-    q: 'Can I share my Telegram invite link with someone else?',
-    a: 'No. Each approved Unique Order Code generates a single-use Telegram invite link (member limit: 1) with a short expiry window.',
+    q: 'Can I share my course access with someone else?',
+    a: 'No. Course access and the private Telegram channel are strictly for verified buyers. Sharing private links or redistributing course material violates our terms.',
   },
 ];
 

@@ -32,7 +32,7 @@ export default function LegalModal({
         },
         {
           heading: '3. Private Telegram Community Rules',
-          body: 'Approved students receive a single-use Telegram invite link valid for one member join. Maintain respectful conduct inside the community; spam or unauthorized promotion leads to removal without refund.',
+          body: 'Approved students receive access to the private Telegram course channel. Maintain respectful conduct inside the community; spam or unauthorized promotion leads to removal without refund.',
         },
       ],
     },
@@ -56,7 +56,7 @@ export default function LegalModal({
       sections: [
         {
           heading: '1. Information We Collect',
-          body: 'We collect your name, mobile number, optional email address, Google account identifier, UTR reference number, and payment screenshot solely to verify your payment and provision course access.',
+          body: 'We collect your name, mobile number, UTR reference number, and payment screenshot solely to verify your payment and provision course access.',
         },
         {
           heading: '2. Data Security & Access Control',

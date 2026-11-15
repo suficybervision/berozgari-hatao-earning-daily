@@ -8,7 +8,6 @@ import {
   LogOut,
   Save,
   Search,
-  Send,
   Settings,
   ShieldAlert,
   Table2,
@@ -20,9 +19,7 @@ import type { User } from 'firebase/auth';
 import type { CourseSettings, OrderRecord, OrderStatus } from '../types';
 import {
   approveOrder,
-  fetchAdminTelegramInviteLink,
   rejectOrder,
-  saveAdminTelegramInviteLink,
   saveCourseSettings,
   subscribeAllOrders,
   uploadCourseAsset,
@@ -73,9 +70,6 @@ export default function AdminDashboard({
   const [savingSettings, setSavingSettings] = useState(false);
   const [uploadingAsset, setUploadingAsset] = useState<'cover' | 'qr' | null>(null);
 
-  const [telegramInviteLink, setTelegramInviteLink] = useState('');
-  const [savingTelegram, setSavingTelegram] = useState(false);
-
   useEffect(() => {
     setFormSettings(settings);
   }, [settings]);
@@ -95,17 +89,6 @@ export default function AdminDashboard({
     );
     return () => unsub();
   }, [user, isAdmin, onNotify]);
-
-  useEffect(() => {
-    if (!user || !isAdmin) return;
-    fetchAdminTelegramInviteLink()
-      .then((link) => {
-        if (link) setTelegramInviteLink(link);
-      })
-      .catch(() => {
-        // Non-blocking
-      });
-  }, [user, isAdmin]);
 
   if (!user) {
     return (
@@ -269,28 +252,6 @@ export default function AdminDashboard({
     }
   };
 
-  const handleSaveTelegram = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavingTelegram(true);
-    try {
-      const savedLink = await saveAdminTelegramInviteLink(telegramInviteLink);
-      setTelegramInviteLink(savedLink);
-      onNotify(
-        'success',
-        'Telegram Channel Link Saved',
-        'Approved customers clicking VIEW NOW will open this channel link.'
-      );
-    } catch (err) {
-      onNotify(
-        'error',
-        'Invalid Telegram Link',
-        err instanceof Error ? err.message : 'Could not save Telegram Channel Invite Link.'
-      );
-    } finally {
-      setSavingTelegram(false);
-    }
-  };
-
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[#F8F8FA] text-zinc-950 py-8 px-4 sm:px-6">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -329,7 +290,7 @@ export default function AdminDashboard({
                 }`}
               >
                 <Settings className="w-3.5 h-3.5" />
-                <span>Course & Telegram Settings</span>
+                <span>Course Settings</span>
               </button>
             </div>
 
@@ -533,10 +494,10 @@ export default function AdminDashboard({
           </>
         ) : (
           /* SETTINGS TAB */
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="max-w-3xl mx-auto">
             <form
               onSubmit={handleSaveSettings}
-              className="lg:col-span-7 bg-white rounded-2xl border border-zinc-200 p-6 sm:p-7 space-y-5"
+              className="bg-white rounded-2xl border border-zinc-200 p-6 sm:p-7 space-y-5"
             >
               <div className="border-b border-zinc-200 pb-4">
                 <h2 className="font-display text-lg font-bold text-zinc-950">
@@ -746,56 +707,6 @@ export default function AdminDashboard({
                 <span>{savingSettings ? 'Saving...' : 'Save Course Settings'}</span>
               </button>
             </form>
-
-            {/* Telegram Private Channel Invite Link Panel */}
-            <div className="lg:col-span-5 bg-[#09090B] text-white rounded-2xl border border-zinc-800 p-6 sm:p-7 space-y-5">
-              <div className="border-b border-zinc-800 pb-4">
-                <p className="text-xs font-medium text-[#E5C158] mb-1">Course Access Link</p>
-                <h2 className="font-display text-lg font-bold text-white">
-                  Telegram Private Channel Link
-                </h2>
-              </div>
-
-              <form onSubmit={handleSaveTelegram} className="space-y-4">
-                <div>
-                  <label
-                    htmlFor="telegram-invite-link"
-                    className="block text-xs font-semibold text-zinc-300 mb-1.5"
-                  >
-                    Telegram Private Channel Invite Link *
-                  </label>
-                  <input
-                    id="telegram-invite-link"
-                    type="url"
-                    required
-                    value={telegramInviteLink}
-                    onChange={(e) => setTelegramInviteLink(e.target.value)}
-                    placeholder="https://t.me/+AbCdEfGhIjKlMnOp"
-                    className="w-full px-3.5 py-3 text-sm font-mono bg-zinc-900 border border-zinc-700 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-[#D4AF37]"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={savingTelegram}
-                  className="w-full py-3.5 px-5 inline-flex items-center justify-center gap-2 text-xs font-bold text-[#09090B] bg-gradient-to-r from-[#D4AF37] to-[#F3D578] rounded-xl hover:brightness-105 disabled:opacity-50 transition-all cursor-pointer"
-                >
-                  {savingTelegram ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                  <span>{savingTelegram ? 'Saving...' : 'Save Telegram Channel Link'}</span>
-                </button>
-              </form>
-
-              <div className="pt-4 border-t border-zinc-800 text-xs text-zinc-400 leading-relaxed space-y-1.5">
-                <p className="text-zinc-200 font-semibold">कैसे काम करेगा:</p>
-                <p>
-                  जब आप किसी कस्टमर का पेमेंट <strong>APPROVE</strong> करेंगे और वह अपने Unique Order Code से <strong>VIEW NOW</strong> दबाएगा, तो सीधे यही Telegram Channel Link खुल जाएगा।
-                </p>
-              </div>
-            </div>
           </div>
         )}
       </div>

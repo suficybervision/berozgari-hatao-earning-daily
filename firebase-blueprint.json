@@ -107,26 +107,6 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["utr", "orderCode", "createdAt"]
-    },
-    "AccessGrant": {
-      "title": "AccessGrant",
-      "description": "One-time Telegram invite issuance lock preventing repeated invite generation",
-      "type": "object",
-      "properties": {
-        "orderCode": { "type": "string", "minLength": 14, "maxLength": 14, "pattern": "^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$" },
-        "grantedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["orderCode", "grantedAt"]
-    },
-    "TelegramSettings": {
-      "title": "TelegramSettings",
-      "description": "Admin-configured Telegram private channel invite link for approved orders",
-      "type": "object",
-      "properties": {
-        "inviteLink": { "type": "string", "minLength": 12, "maxLength": 500, "pattern": "^https://(t\\.me|telegram\\.me)/[A-Za-z0-9_+\\-/]+$" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["inviteLink", "updatedAt"]
     }
   },
   "firestore": {
@@ -137,10 +117,6 @@
     "/settings/{settingId}": {
       "schema": { "$ref": "#/entities/CourseSettings" },
       "description": "Course pricing, title, description, cover, and UPI configuration"
-    },
-    "/telegram_settings/{configId}": {
-      "schema": { "$ref": "#/entities/TelegramSettings" },
-      "description": "Admin-managed Telegram private channel invite link"
     },
     "/orders/{orderCode}": {
       "schema": { "$ref": "#/entities/Order" },
@@ -161,10 +137,6 @@
     "/utr_locks/{utrId}": {
       "schema": { "$ref": "#/entities/UtrLock" },
       "description": "UTR uniqueness lock preventing duplicate submissions"
-    },
-    "/access_grants/{orderCode}": {
-      "schema": { "$ref": "#/entities/AccessGrant" },
-      "description": "Single-use Telegram invite issuance lock per approved orderCode"
     }
   }
 }

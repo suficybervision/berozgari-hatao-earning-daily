@@ -34,7 +34,6 @@ class HttpError extends Error {
 const BOOTSTRAPPED_ADMIN_EMAIL = 'hajshdbdb262837@gmail.com';
 const ORDER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ORDER_CODE_REGEX = /^SUFI-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
-const TELEGRAM_LINK_REGEX = /^https:\/\/(t\.me|telegram\.me)\/[A-Za-z0-9_+\-/]+$/;
 const MAX_JSON_BODY_BYTES = 6 * 1024 * 1024;
 const MAX_FIRESTORE_DATAURL_CHARS = 940000;
 
@@ -685,81 +684,7 @@ export async function handleOrderTrack(
 }
 
 // ---------------------------------------------------------------------------
-// 4. POST /api/telegram/invite (Returns Admin-Saved Channel Invite Link for APPROVED Orders)
-// ---------------------------------------------------------------------------
-export async function handleTelegramInvite(
-  req: IncomingMessage & { body?: unknown },
-  res: ServerResponse
-): Promise<void> {
-  try {
-    if (!requireMethod(req, res, 'POST')) return;
-    if (!checkRateLimit(req, res, 'invite', 20, 10 * 60 * 1000)) return;
-
-    const body = await readJsonBody<{ orderCode?: string }>(req);
-    const rawCode = String(body.orderCode || '')
-      .trim()
-      .toUpperCase();
-
-    if (!ORDER_CODE_REGEX.test(rawCode)) {
-      throw new HttpError(400, 'Valid Unique Order Code is required.');
-    }
-
-    const fbConfig = getFirebaseConfig();
-    const baseUrl = getFirestoreBaseUrl(fbConfig);
-
-    // Step 1: Verify order status in Firestore
-    const trackRes = await fetch(
-      `${baseUrl}/order_tracking/${encodeURIComponent(rawCode)}?key=${encodeURIComponent(fbConfig.apiKey)}`
-    );
-    if (!trackRes.ok) {
-      throw new HttpError(404, 'Order code not found.');
-    }
-
-    const trackDoc = (await trackRes.json()) as {
-      fields?: { status?: { stringValue?: string } };
-    };
-    const status = trackDoc.fields?.status?.stringValue;
-
-    if (status !== 'APPROVED') {
-      throw new HttpError(
-        403,
-        'Course access is locked. Only APPROVED orders can open the Telegram channel.'
-      );
-    }
-
-    // Step 2: Fetch Admin-configured Private Telegram Channel Invite Link from Firestore
-    const tgRes = await fetch(
-      `${baseUrl}/telegram_settings/channel?key=${encodeURIComponent(fbConfig.apiKey)}`
-    );
-    if (!tgRes.ok) {
-      throw new HttpError(
-        503,
-        'Telegram Channel Invite Link अभी Admin Panel में सेव नहीं किया गया है। कृपया WhatsApp Support से संपर्क करें।'
-      );
-    }
-
-    const tgDoc = (await tgRes.json()) as {
-      fields?: { inviteLink?: { stringValue?: string } };
-    };
-    const inviteLink = (tgDoc.fields?.inviteLink?.stringValue || '').trim();
-
-    if (!TELEGRAM_LINK_REGEX.test(inviteLink)) {
-      throw new HttpError(
-        503,
-        'Telegram Channel Invite Link उपलब्ध नहीं है। कृपया Admin Panel से सही https://t.me/+... लिंक सेव करें।'
-      );
-    }
-
-    sendJson(res, 200, {
-      inviteLink,
-    });
-  } catch (err) {
-    handleError(res, err, 'Unable to load Telegram channel link.');
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 5. GET /api/screenshots/:orderCode (Admin-Only Protected Screenshot Retrieval)
+// 4. GET /api/screenshots/:orderCode (Admin-Only Protected Screenshot Retrieval)
 // ---------------------------------------------------------------------------
 export async function handleGetScreenshot(
   req: IncomingMessage,

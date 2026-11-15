@@ -23,6 +23,7 @@ import type {
 
 export const BOOTSTRAPPED_ADMIN_EMAIL = 'hajshdbdb262837@gmail.com';
 export const DEFAULT_COURSE_COVER = '/assets/aistudio/file_00000000b70c820b8abadde4ba233ee5_8293c598.webp';
+export const COURSE_TELEGRAM_CHANNEL_URL = 'https://t.me/+hFCnXo0yoBwzMjA1';
 
 export const DEFAULT_COURSE_SETTINGS: CourseSettings = {
   courseName: 'Complete Online Earning Course',
@@ -357,28 +358,6 @@ export async function trackOrderByCode(orderCode: string): Promise<TrackingResul
   };
 }
 
-// Public Telegram Channel Link Retrieval via Verified Approved Order Code
-export async function requestTelegramInviteByCode(
-  orderCode: string
-): Promise<{ inviteLink: string }> {
-  const cleanCode = normalizeOrderCode(orderCode);
-  const data = await safeFetchJson<{
-    inviteLink?: string;
-  }>('/api/telegram/invite', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ orderCode: cleanCode }),
-  });
-
-  if (!data.inviteLink) {
-    throw new Error('Telegram channel link is not configured yet.');
-  }
-
-  return {
-    inviteLink: data.inviteLink,
-  };
-}
-
 // Admin Orders Management
 export function subscribeAllOrders(
   onChange: (orders: OrderRecord[]) => void,
@@ -452,37 +431,5 @@ export async function rejectOrder(
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function fetchAdminTelegramInviteLink(): Promise<string> {
-  const path = 'telegram_settings/channel';
-  try {
-    const snap = await getDoc(doc(db, 'telegram_settings', 'channel'));
-    if (!snap.exists()) return '';
-    return String(snap.data().inviteLink || '');
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-    return '';
-  }
-}
-
-export async function saveAdminTelegramInviteLink(inviteLink: string): Promise<string> {
-  const cleaned = inviteLink.trim();
-  if (!/^https:\/\/(t\.me|telegram\.me)\/[A-Za-z0-9_+\-/]+$/.test(cleaned)) {
-    throw new Error(
-      'कृपया सही Telegram Private Channel Invite Link डालें (जैसे: https://t.me/+AbCdEfGhIjKlMnOp)।'
-    );
-  }
-  const path = 'telegram_settings/channel';
-  try {
-    await setDoc(doc(db, 'telegram_settings', 'channel'), {
-      inviteLink: cleaned.slice(0, 500),
-      updatedAt: serverTimestamp(),
-    });
-    return cleaned;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-    throw new Error('Failed to save Telegram Channel Invite Link.');
   }
 }

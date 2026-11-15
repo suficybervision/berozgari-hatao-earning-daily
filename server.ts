@@ -10,7 +10,6 @@ import {
   handleLegacyLocalUpload,
   handleOrderSubmit,
   handleOrderTrack,
-  handleTelegramInvite,
   sendJson,
 } from './api/_lib/backend.ts';
 
@@ -42,7 +41,6 @@ async function startServer() {
   app.all('/api/health', (req, res) => void handleHealth(req, res));
   app.all('/api/orders/submit', (req, res) => void handleOrderSubmit(req, res));
   app.all('/api/orders/track', (req, res) => void handleOrderTrack(req, res));
-  app.all('/api/telegram/invite', (req, res) => void handleTelegramInvite(req, res));
   app.all('/api/screenshots/:orderCode', (req, res) =>
     void handleGetScreenshot(req, res, req.params.orderCode)
   );
